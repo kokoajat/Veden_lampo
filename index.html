@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v10</title>
+    <title> V11 SYKE Veden Lämpötila - Tilastot ja Kaaviot v11</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f8; color: #333; margin: 0; padding: 20px; }
@@ -67,14 +67,11 @@
     let myChart = null;
 
     async function searchStations() {
-        const rawSearchTerm = document.getElementById('stationSearch').value.trim();
-        if (!rawSearchTerm) {
+        const searchTerm = document.getElementById('stationSearch').value.trim().toLowerCase();
+        if (!searchTerm) {
             alert('Syötä hakusana');
             return;
         }
-
-        // SYKE vaatii tarkan kirjainkoon (esim. "Nellim"). Muutetaan eka kirjain isoksi automaattisesti.
-        const searchTerm = rawSearchTerm.charAt(0).toUpperCase() + rawSearchTerm.slice(1).toLowerCase();
 
         const select = document.getElementById('stationSelect');
         const errorMsg = document.getElementById('errorMsg');
@@ -84,10 +81,9 @@
         errorMsg.textContent = '';
         debugInfo.style.display = 'none';
         
-        // Yksinkertaistettu kysely ilman tolower() -toimintoa
-        const baseUrl = 'https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka';
-        const query = `?$filter=substringof('${searchTerm}', Nimi)&$format=json`;
-        const fetchUrl = encodeURI(baseUrl + query);
+        // Haetaan KAIKKI asemat, mutta rajataan data vain ID- ja Nimi-sarakkeisiin tiedonsiirron minimoimiseksi.
+        // Frontend hoitaa varsinaisen suodatuksen.
+        const fetchUrl = 'https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka?$select=Paikka_Id,Nimi&$format=json';
 
         try {
             const response = await fetch(fetchUrl);
@@ -98,13 +94,18 @@
             }
             
             const data = JSON.parse(textResponse);
-            const stations = data.value;
+            const allStations = data.value;
+
+            // JS-client-side filtteröinti: poimitaan vain ne, joiden nimessä esiintyy hakusana
+            const filteredStations = allStations.filter(station => 
+                station.Nimi && station.Nimi.toLowerCase().includes(searchTerm)
+            );
 
             select.innerHTML = '';
-            if (!stations || stations.length === 0) {
+            if (!filteredStations || filteredStations.length === 0) {
                 select.innerHTML = '<option value="">Ei löytynyt asemia tällä hakusanalla</option>';
             } else {
-                stations.forEach(station => {
+                filteredStations.forEach(station => {
                     const option = document.createElement('option');
                     option.value = station.Paikka_Id;
                     option.text = `${station.Nimi} (ID: ${station.Paikka_Id})`;
@@ -159,7 +160,7 @@
             const observations = data.value;
 
             if (!observations || observations.length === 0) {
-                errorMsg.textContent = 'Valitulta aikaväliltä ei löytynyt lämpötilahavaintoja tälle asemalle.';
+                errorMsg.textContent = 'Valitulta aikaväliltä ei löytynyt lämpötilahavaintoja tälle asemalle. Kokeile laajentaa päivämääriä.';
                 loading.style.display = 'none';
                 return;
             }
