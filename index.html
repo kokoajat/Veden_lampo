@@ -302,6 +302,15 @@ Etsi
 
 </select>
 
+<label style="font-weight:normal;margin-top:10px;display:flex;align-items:center;gap:8px;cursor:pointer;">
+<input
+type="checkbox"
+id="onlyTempStations"
+checked
+style="width:auto;margin:0;">
+Näytä vain asemat, joilla mitataan pintaveden lämpötilaa
+</label>
+
 </div>
 
 <div class="row">
@@ -480,6 +489,12 @@ let lastStationResults = [];
 let comparisonMode = false;
 let comparisonExportData = null; // { labels: [...], years: [{year, values:[...]}] }
 
+// Pintaveden lämpötilan Suure_Id haetaan rajapinnasta kerran ja
+// muistetaan. Sen avulla asemahausta voidaan karsia pois asemat,
+// jotka mittaavat jotain muuta suuretta (vedenkorkeus, virtaama...).
+let tempSuureId = null;
+let tempSuureLookupDone = false;
+
 document.getElementById("endDate").value =
 new Date().toISOString().substring(0,10);
 
@@ -497,6 +512,7 @@ const refreshButton = document.getElementById("refresh");
 const exportCSVButton = document.getElementById("exportCSV");
 const compareYearsButton = document.getElementById("compareYearsButton");
 const yearsInput = document.getElementById("yearsInput");
+const onlyTempStations = document.getElementById("onlyTempStations");
 
 const loading = document.getElementById("loading");
 const error = document.getElementById("error");
@@ -534,6 +550,56 @@ function clearError() {
 // Asemien haku
 // ------------------------------
 
+// Hakee Suure-taulun ja etsii sieltä sen suureen, jonka data löytyy
+// LampoPintavesi-taulusta. Taulu on pieni (~15 riviä), joten se haetaan
+// kokonaan ja suodatetaan selaimessa - näin vältetään OData-filtterin
+// kenttänimien arvailu. Tulos muistetaan istunnon ajaksi.
+async function getTempSuureId() {
+
+    if (tempSuureLookupDone) {
+        return tempSuureId;
+    }
+
+    tempSuureLookupDone = true;
+
+    try {
+
+        const url = `${API_BASE}/Suure`;
+
+        console.log(url);
+
+        const response = await fetch(url, {
+            headers: { "Accept": "application/json" }
+        });
+
+        if (!response.ok) {
+            throw new Error("HTTP " + response.status);
+        }
+
+        const json = await response.json();
+
+        const match = json.value.find(s =>
+            s.DatataulunNimi === "LampoPintavesi" ||
+            s.taulunnimi === "LampoPintavesi"
+        );
+
+        if (match) {
+            tempSuureId = match.Suure_Id;
+            console.log("Pintaveden lämpötilan Suure_Id:", tempSuureId, match.Nimi);
+        } else {
+            console.warn("Suure-taulusta ei löytynyt LampoPintavesi-riviä.");
+        }
+
+    }
+
+    catch (err) {
+        console.warn("Suure_Id:n haku epäonnistui, suodatus ohitetaan:", err.message);
+    }
+
+    return tempSuureId;
+
+}
+
 async function searchStations() {
 
     clearError();
@@ -553,13 +619,24 @@ async function searchStations() {
 
     try {
 
+        // Selvitä lämpötilasuureen tunnus, jos suodatus on päällä
+        let suureId = null;
+
+        if (onlyTempStations.checked) {
+            suureId = await getTempSuureId();
+        }
+
         const params = new URLSearchParams();
 
         // Huom: haku pienillä kirjaimilla, jotta täsmää tolower(Nimi):iin
-        params.set(
-            "$filter",
-            `substringof('${term.toLowerCase()}',tolower(Nimi))`
-        );
+        let filter =
+            `substringof('${term.toLowerCase()}',tolower(Nimi))`;
+
+        if (suureId !== null) {
+            filter += ` and Suure_Id eq ${suureId}`;
+        }
+
+        params.set("$filter", filter);
 
         params.set("$orderby","Nimi");
 
@@ -592,6 +669,14 @@ async function searchStations() {
             stationSelect.innerHTML =
             "<option>Ei asemia</option>";
 
+            if (onlyTempStations.checked) {
+                showError(
+                    `Hakusanalla "${term}" ei löytynyt lämpötila-asemia. Poista rasti ruudusta nähdäksesi kaikki asemat.`
+                );
+            } else {
+                showError(`Hakusanalla "${term}" ei löytynyt asemia.`);
+            }
+
             hideLoading();
             searchButton.disabled = false;
 
@@ -619,6 +704,14 @@ async function searchStations() {
 
         });
 
+        // Jos suodatus oli päällä mutta Suure_Id:tä ei saatu haettua,
+        // kerro ettei karsintaa voitu tehdä.
+        if (onlyTempStations.checked && suureId === null) {
+            showError(
+                "Huom: lämpötila-asemien tunnistus epäonnistui, joten listassa voi olla myös muita mittausasemia."
+            );
+        }
+
     }
 
     catch(err){
@@ -631,6 +724,13 @@ async function searchStations() {
     searchButton.disabled = false;
 
 }
+
+// Haetaan asemat uudelleen kun suodatusvalinta muuttuu
+onlyTempStations.addEventListener("change", () => {
+    if (stationSearch.value.trim().length >= 2) {
+        searchStations();
+    }
+});
 
 searchButton.addEventListener("click", searchStations);
 
@@ -1383,4 +1483,3 @@ function exportCSV(){
 </body>
 
 </html>
-
