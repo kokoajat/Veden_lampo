@@ -525,9 +525,8 @@ const stationSummary = document.getElementById("stationSummary");
 // Koko lämpötila-asemalista muistetaan, jotta uusi klikkaus on välitön
 let allTempStationsCache = null;
 
-// Pintaveden lämpötilan Suure_Id haetaan kerran ja muistetaan
+// Varmistettu lämpötilasuureen tunnus muistetaan istunnon ajaksi
 let tempSuureId = null;
-let tempSuureLookupDone = false;
 
 const loading = document.getElementById("loading");
 const error = document.getElementById("error");
@@ -862,64 +861,31 @@ async function mapWithLimit(items, limit, fn, onProgress) {
 
 }
 
-// Etsii Suure-taulusta sen suureen tunnuksen, jonka data on
-// LampoPintavesi-taulussa. Taulu on pieni, joten se haetaan kokonaan
-// ja tulkitaan selaimessa. Tulos muistetaan istunnon ajaksi.
-async function getTempSuureId() {
+// Lämpötilasuureen tunnuksen selvittäminen.
+//
+// Rajapinnassa jokainen Paikka-rivi kuuluu yhdelle mittaussuureelle
+// (Suure_Id). Emme voi luottaa siihen, että Suure-taulun kenttien
+// arvot ovat juuri odotetussa muodossa, joten tunnus varmistetaan
+// aina kokeellisesti: haetaan muutama asema ja katsotaan löytyykö
+// niiltä oikeasti dataa LampoPintavesi-taulusta.
 
-    if (tempSuureLookupDone) return tempSuureId;
+// Hakee asemat, joilla on annettu Suure_Id. limit rajaa otoskoon.
+async function fetchStationsBySuure(suureId, limit) {
 
-    tempSuureLookupDone = true;
+    const params = new URLSearchParams();
 
-    try {
+    params.set("$filter", `Suure_Id eq ${suureId}`);
 
-        const url = `${API_BASE}/Suure`;
-
-        console.log(url);
-
-        const response = await fetch(url, {
-            headers: { "Accept": "application/json" }
-        });
-
-        if (!response.ok) throw new Error("HTTP " + response.status);
-
-        const json = await response.json();
-
-        const match = json.value.find(s =>
-            s.DatataulunNimi === "LampoPintavesi" ||
-            s.taulunnimi === "LampoPintavesi"
-        );
-
-        if (match) {
-            tempSuureId = match.Suure_Id;
-            console.log("Pintaveden lämpötilan Suure_Id:", tempSuureId);
-        }
-
-    }
-
-    catch (err) {
-        console.warn("Suure-taulun haku epäonnistui:", err.message);
-    }
-
-    return tempSuureId;
-
-}
-
-// Hakee kaikki asemat, jotka on rekisteröity pintaveden lämpötilalle.
-// Kokeilee ensin navigaatiopolkua Suure(id)/Paikka ja sen jälkeen
-// tavallista suodatinta.
-async function fetchTempStationCandidates(suureId) {
+    if (limit) params.set("$top", String(limit));
 
     const urls = [
-        `${API_BASE}/Suure(${suureId})/Paikka`,
-        `${API_BASE}/Paikka?${new URLSearchParams({"$filter":`Suure_Id eq ${suureId}`}).toString()}`
+        `${API_BASE}/Paikka?${params.toString()}`,
+        `${API_BASE}/Suure(${suureId})/Paikka`
     ];
 
     for (const url of urls) {
 
         try {
-
-            console.log(url);
 
             const response = await fetch(url, {
                 headers: { "Accept": "application/json" }
@@ -937,6 +903,100 @@ async function fetchTempStationCandidates(suureId) {
 
         catch (err) {
             console.warn("Kysely epäonnistui:", url, err.message);
+        }
+
+    }
+
+    return null;
+
+}
+
+// Testaa onko annettu Suure_Id pintaveden lämpötila: haetaan otos
+// asemia ja tarkistetaan löytyykö niiltä lämpötiladataa.
+async function verifySuureId(suureId) {
+
+    const sample = await fetchStationsBySuure(suureId, 5);
+
+    if (!sample) return false;
+
+    for (const s of sample) {
+        if (await probeStation(s.Paikka_Id)) {
+            return true;
+        }
+    }
+
+    return false;
+
+}
+
+// Yrittää lukea tunnuksen Suure-taulusta. Käytetään vain
+// arvausjärjestyksen parantamiseen - tulos varmistetaan silti.
+async function guessSuureIdFromTable() {
+
+    try {
+
+        const response = await fetch(`${API_BASE}/Suure`, {
+            headers: { "Accept": "application/json" }
+        });
+
+        if (!response.ok) return null;
+
+        const json = await response.json();
+
+        if (!json.value) return null;
+
+        // Tulostetaan taulu konsoliin vianetsintää varten
+        console.log("Suure-taulu:", json.value.map(s =>
+            `${s.Suure_Id}: ${s.Nimi} / ${s.Suurekoodi} / ${s.DatataulunNimi}`
+        ));
+
+        const norm = v =>
+            String(v || "").toLowerCase().replace(/[^a-zåäö]/g, "");
+
+        const match = json.value.find(s =>
+            norm(s.DatataulunNimi) === "lampopintavesi" ||
+            norm(s.taulunnimi) === "lampopintavesi" ||
+            norm(s.Nimi).includes("pintavedenlampotila") ||
+            norm(s.NimiEng).includes("surfacewatertemperature")
+        );
+
+        return match ? match.Suure_Id : null;
+
+    }
+
+    catch (err) {
+        console.warn("Suure-taulun haku epäonnistui:", err.message);
+        return null;
+    }
+
+}
+
+// Selvittää lämpötilasuureen tunnuksen ja varmistaa sen.
+async function getTempSuureId(onProgress) {
+
+    if (tempSuureId !== null) return tempSuureId;
+
+    // Arvaus taulusta ensin, sitten muut tunnukset järjestyksessä
+    const guess = await guessSuureIdFromTable();
+
+    const order = [];
+
+    if (guess !== null) order.push(guess);
+
+    for (let n = 1; n <= 20; n++) {
+        if (n !== guess) order.push(n);
+    }
+
+    for (let i = 0; i < order.length; i++) {
+
+        const id = order[i];
+
+        if (onProgress) onProgress(i + 1, order.length, id);
+
+        if (await verifySuureId(id)) {
+            tempSuureId = id;
+            console.log("Pintaveden lämpötilan Suure_Id varmistettu:", id);
+            return id;
         }
 
     }
@@ -963,19 +1023,22 @@ async function listAllTempStations() {
 
     try {
 
-        showLoading("Selvitetään lämpötilasuuretta...");
+        showLoading("Tunnistetaan lämpötilasuuretta...");
 
-        const suureId = await getTempSuureId();
+        const suureId = await getTempSuureId((done, total, id) => {
+            showLoading(`Tunnistetaan lämpötilasuuretta... (kokeillaan ${id})`);
+        });
 
         if (suureId === null) {
             throw new Error(
-                "Lämpötilasuureen tunnistus epäonnistui. Käytä nimihakua."
+                "Lämpötilasuureen tunnistus epäonnistui kaikilla tunnuksilla. " +
+                "Nimihaku toimii silti. Konsolista (F12) näet Suure-taulun sisällön."
             );
         }
 
         showLoading("Haetaan asemalistaa...");
 
-        const candidates = await fetchTempStationCandidates(suureId);
+        const candidates = await fetchStationsBySuure(suureId, null);
 
         if (!candidates) {
             throw new Error(
