@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v2</title>
+    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v3</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f8; color: #333; margin: 0; padding: 20px; }
@@ -19,6 +19,7 @@
         #chartContainer { margin-top: 30px; position: relative; height: 400px; width: 100%; }
         #loading { display: none; color: #0056b3; font-weight: bold; margin-top: 10px; }
         .error { color: red; margin-top: 10px; font-weight: bold; word-break: break-all; }
+        .debug { font-size: 0.8rem; color: #666; margin-top: 10px; background: #eee; padding: 10px; border-radius: 4px; display: none; }
     </style>
 </head>
 <body>
@@ -55,6 +56,7 @@
     <button class="btn" onclick="fetchDataAndDrawChart()">Hae havainnot ja piirrä kaavio</button>
     <div id="loading">Haetaan dataa, odota hetki...</div>
     <div id="errorMsg" class="error"></div>
+    <div id="debugInfo" class="debug"></div>
 
     <div id="chartContainer">
         <canvas id="tempChart"></canvas>
@@ -75,9 +77,12 @@
         const errorMsg = document.getElementById('errorMsg');
         select.innerHTML = '<option>Haetaan...</option>';
         errorMsg.textContent = '';
+        
+        // Varmistetaan, että haku-URL on koodattu (mobiiliselaimet voivat kaatua URLin välilyönteihin ym.)
+        const url = encodeURI(`https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka?$filter=substringof('${searchTerm}', tolower(Nimi))`);
 
         try {
-            const response = await fetch(`https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka?$filter=substringof('${searchTerm}', tolower(Nimi))`);
+            const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP virhe: ${response.status}`);
             
             const data = await response.json();
@@ -105,9 +110,11 @@
         const startDate = document.getElementById('startDate').value;
         const endDate = document.getElementById('endDate').value;
         const errorMsg = document.getElementById('errorMsg');
+        const debugInfo = document.getElementById('debugInfo');
         const loading = document.getElementById('loading');
 
         errorMsg.textContent = '';
+        debugInfo.style.display = 'none';
 
         if (!paikkaId) {
             errorMsg.textContent = 'Valitse ensin mittausasema.';
@@ -116,11 +123,13 @@
 
         loading.style.display = 'block';
 
+        // SYKE OData v3 vaatii tarkan datetime-syntaksin. 
+        // Välilyönnit on välttämätöntä koodata encodeURI:lla, jotta vältytään TypeError: Failed to fetch -virheeltä.
+        const rawUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/VedenLampotila?$filter=Paikka_Id eq ${paikkaId} and Aika ge datetime'${startDate}T00:00:00' and Aika le datetime'${endDate}T23:59:59'&$orderby=Aika asc`;
+        const encodedUrl = encodeURI(rawUrl);
+
         try {
-            // SYKE OData v4 URL format (no 'datetime' keyword)
-            const url = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/VedenLampotila?$filter=Paikka_Id eq ${paikkaId} and Aika ge ${startDate}T00:00:00Z and Aika le ${endDate}T23:59:59Z&$orderby=Aika asc`;
-            
-            const response = await fetch(url);
+            const response = await fetch(encodedUrl);
             if (!response.ok) {
                 throw new Error(`SYKE API palautti virheen: ${response.status} ${response.statusText}`);
             }
@@ -129,7 +138,7 @@
             const observations = data.value;
 
             if (!observations || observations.length === 0) {
-                errorMsg.textContent = 'Valitulta aikaväliltä ei löytynyt lämpötilahavaintoja. Kokeile laajempaa aikaväliä (esim. kesäkuukaudet).';
+                errorMsg.textContent = 'Valitulta aikaväliltä ei löytynyt lämpötilahavaintoja tälle asemalle.';
                 loading.style.display = 'none';
                 return;
             }
@@ -140,7 +149,9 @@
             drawChart(labels, values, document.getElementById('stationSelect').options[document.getElementById('stationSelect').selectedIndex].text);
 
         } catch (error) {
-            errorMsg.textContent = `Virhe: ${error.message} (Jos käytät puhelinta, selain saattaa estää paikallisen tiedoston verkkoyhteydet. Kokeile toista selainta.)`;
+            errorMsg.innerHTML = `Latausvirhe: ${error.message} <br><br>Vinkki: Jos käytät puhelinta, tarkista ettei selaimessasi ole päällä tiukkaa mainostenestoa (AdBlock / Brave Shields / tracker block), joka voisi estää yhteyden ympäristöhallinnon palvelimelle.`;
+            debugInfo.style.display = 'block';
+            debugInfo.textContent = "Yritetty URL: " + encodedUrl;
         } finally {
             loading.style.display = 'none';
         }
