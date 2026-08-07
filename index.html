@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v6</title>
+    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v7</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f8; color: #333; margin: 0; padding: 20px; }
@@ -79,17 +79,15 @@
         select.innerHTML = '<option value="loading">Haetaan asemia...</option>';
         errorMsg.textContent = '';
         
-        // Suora haku SYKEen, URL ja heittomerkit koodattuina
-        const baseUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka?$filter=substringof('${searchTerm}', tolower(Nimi))`;
-        const fetchUrl = encodeURI(baseUrl).replace(/'/g, "%27");
+        // Lisätty &$format=json pakottamaan JSON-vastaus
+        const targetUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka?$filter=substringof('${searchTerm}', tolower(Nimi))&$format=json`;
+        const proxyUrl = `https://corsproxy.io/?` + encodeURIComponent(targetUrl);
 
         try {
-            const response = await fetch(fetchUrl);
-            const textResponse = await response.text(); // Luetaan raakana ensin
+            const response = await fetch(proxyUrl);
+            const textResponse = await response.text();
             
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${textResponse.substring(0, 100)}`);
-            }
+            if (!response.ok) throw new Error(`HTTP ${response.status}: ${textResponse.substring(0, 100)}`);
             
             const data = JSON.parse(textResponse);
             const stations = data.value;
@@ -129,12 +127,13 @@
 
         loading.style.display = 'block';
 
-        const baseUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/VedenLampotila?$filter=Paikka_Id eq ${paikkaId} and Aika ge datetime'${startDate}T00:00:00' and Aika le datetime'${endDate}T23:59:59'&$orderby=Aika asc`;
-        const fetchUrl = encodeURI(baseUrl).replace(/'/g, "%27");
+        // Lisätty &$format=json pakottamaan JSON-vastaus OData-rajapinnalta
+        const targetUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/VedenLampotila?$filter=Paikka_Id eq ${paikkaId} and Aika ge datetime'${startDate}T00:00:00' and Aika le datetime'${endDate}T23:59:59'&$orderby=Aika asc&$format=json`;
+        const proxyUrl = `https://corsproxy.io/?` + encodeURIComponent(targetUrl);
 
         try {
-            const response = await fetch(fetchUrl);
-            const textResponse = await response.text(); // Luetaan aina tekstinä ensin estääksemme kaatumiset
+            const response = await fetch(proxyUrl);
+            const textResponse = await response.text();
 
             if (!response.ok) {
                 throw new Error(`Palvelin palautti virheen ${response.status}: ${textResponse.substring(0, 150)}`);
@@ -144,7 +143,7 @@
             try {
                 data = JSON.parse(textResponse);
             } catch (e) {
-                throw new Error("Datan muuntaminen epäonnistui. Palvelin lähetti tämän: " + textResponse.substring(0, 150));
+                throw new Error("Datan muuntaminen JSONiksi epäonnistui (Tarkista URL).");
             }
 
             const observations = data.value;
@@ -163,7 +162,7 @@
         } catch (error) {
             errorMsg.innerHTML = `Latausvirhe: ${error.message}`;
             debugInfo.style.display = 'block';
-            debugInfo.textContent = "Kohde-URL: " + fetchUrl;
+            debugInfo.textContent = "Kohde-URL: " + targetUrl;
         } finally {
             loading.style.display = 'none';
         }
