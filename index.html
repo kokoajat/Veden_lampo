@@ -1,199 +1,765 @@
 <!DOCTYPE html>
 <html lang="fi">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v13</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f8; color: #333; margin: 0; padding: 20px; }
-        .container { max-width: 900px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        h1 { font-size: 1.5rem; color: #0056b3; margin-top: 0; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; font-weight: bold; margin-bottom: 5px; }
-        input[type="text"], input[type="date"], select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        .btn { background-color: #0056b3; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 4px; font-size: 1rem; }
-        .btn:hover { background-color: #004494; }
-        .flex-row { display: flex; gap: 15px; margin-bottom: 15px; }
-        .flex-row > div { flex: 1; }
-        #chartContainer { margin-top: 30px; position: relative; height: 400px; width: 100%; }
-        #loading { display: none; color: #0056b3; font-weight: bold; margin-top: 10px; }
-        .error { color: red; margin-top: 10px; font-weight: bold; word-break: break-all; }
-        .debug { font-size: 0.8rem; color: #666; margin-top: 10px; background: #eee; padding: 10px; border-radius: 4px; display: none; }
-    </style>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>SYKE Pintaveden lämpötilat v14</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+
+*{
+    box-sizing:border-box;
+}
+
+body{
+    margin:0;
+    padding:20px;
+    font-family:Segoe UI,Tahoma,Geneva,Verdana,sans-serif;
+    background:#edf2f7;
+    color:#222;
+}
+
+.container{
+
+    max-width:1100px;
+    margin:auto;
+
+    background:#fff;
+
+    border-radius:12px;
+
+    box-shadow:0 5px 15px rgba(0,0,0,.15);
+
+    padding:25px;
+
+}
+
+h1{
+
+    margin-top:0;
+
+    color:#0056b3;
+
+    text-align:center;
+
+}
+
+.form-group{
+
+    margin-bottom:15px;
+
+}
+
+label{
+
+    display:block;
+
+    margin-bottom:5px;
+
+    font-weight:bold;
+
+}
+
+input,
+select{
+
+    width:100%;
+
+    padding:10px;
+
+    border:1px solid #ccc;
+
+    border-radius:6px;
+
+    font-size:15px;
+
+}
+
+button{
+
+    background:#0056b3;
+
+    color:white;
+
+    border:none;
+
+    padding:10px 18px;
+
+    border-radius:6px;
+
+    cursor:pointer;
+
+    font-size:15px;
+
+}
+
+button:hover{
+
+    background:#003f86;
+
+}
+
+.row{
+
+    display:flex;
+
+    gap:15px;
+
+    flex-wrap:wrap;
+
+}
+
+.col{
+
+    flex:1;
+
+    min-width:250px;
+
+}
+
+.toolbar{
+
+    margin-top:20px;
+
+    display:flex;
+
+    gap:10px;
+
+    flex-wrap:wrap;
+
+}
+
+.stats{
+
+    margin-top:20px;
+
+    display:grid;
+
+    grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+
+    gap:10px;
+
+}
+
+.card{
+
+    background:#f5f8fc;
+
+    border-radius:8px;
+
+    padding:12px;
+
+    text-align:center;
+
+}
+
+.card h3{
+
+    margin:0;
+
+    font-size:14px;
+
+    color:#777;
+
+}
+
+.card p{
+
+    margin:8px 0 0;
+
+    font-size:22px;
+
+    font-weight:bold;
+
+    color:#0056b3;
+
+}
+
+#chartContainer{
+
+    margin-top:25px;
+
+    height:500px;
+
+}
+
+#error{
+
+    color:red;
+
+    font-weight:bold;
+
+    margin-top:10px;
+
+}
+
+#loading{
+
+    display:none;
+
+    margin-top:10px;
+
+    color:#0056b3;
+
+    font-weight:bold;
+
+}
+
+footer{
+
+    margin-top:30px;
+
+    text-align:center;
+
+    color:#888;
+
+    font-size:13px;
+
+}
+
+@media(max-width:700px){
+
+.row{
+
+display:block;
+
+}
+
+.col{
+
+margin-bottom:12px;
+
+}
+
+.toolbar{
+
+display:grid;
+
+grid-template-columns:1fr 1fr;
+
+}
+
+}
+
+</style>
+
 </head>
+
 <body>
 
 <div class="container">
-    <h1>Vesistöjen pintaveden lämpötilat v13</h1>
 
-    <div class="form-group">
-        <label for="stationSearch">1. Etsi mittausasema (esim. "Inari" tai "Nellim")</label>
-        <div style="display: flex; gap: 10px;">
-            <input type="text" id="stationSearch" placeholder="Syötä aseman nimi..." value="Nellim">
-            <button class="btn" onclick="searchStations()">Etsi asemat</button>
-        </div>
-    </div>
+<h1>SYKE Pintaveden lämpötilat v14</h1>
 
-    <div class="form-group">
-        <label for="stationSelect">Valitse asema</label>
-        <select id="stationSelect">
-            <option value="">Ladataan...</option>
-        </select>
-    </div>
+<div class="form-group">
 
-    <div class="flex-row">
-        <div>
-            <label for="startDate">2. Alkamispäivä</label>
-            <input type="date" id="startDate" value="2024-05-01">
-        </div>
-        <div>
-            <label for="endDate">3. Päättymispäivä</label>
-            <input type="date" id="endDate" value="2026-08-07">
-        </div>
-    </div>
+<label>Mittausasema</label>
 
-    <button class="btn" onclick="fetchDataAndDrawChart()">Hae havainnot ja piirrä kaavio</button>
-    <div id="loading">Haetaan dataa, odota hetki...</div>
-    <div id="errorMsg" class="error"></div>
-    <div id="debugInfo" class="debug"></div>
+<div class="row">
 
-    <div id="chartContainer">
-        <canvas id="tempChart"></canvas>
-    </div>
+<div class="col">
+
+<input
+id="stationSearch"
+type="text"
+placeholder="Kirjoita esim. Nellim">
+
+</div>
+
+<div style="width:130px">
+
+<button
+id="searchButton">
+
+Etsi
+
+</button>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="form-group">
+
+<select id="stationSelect">
+
+<option>Ladataan asemia...</option>
+
+</select>
+
+</div>
+
+<div class="row">
+
+<div class="col">
+
+<label>Alkupäivä</label>
+
+<input
+type="date"
+id="startDate"
+value="2024-05-01">
+
+</div>
+
+<div class="col">
+
+<label>Loppupäivä</label>
+
+<input
+type="date"
+id="endDate">
+
+</div>
+
+</div>
+
+<div class="toolbar">
+
+<button id="loadButton">
+
+Hae lämpötilat
+
+</button>
+
+<button id="savePNG">
+
+Tallenna PNG
+
+</button>
+
+<button id="exportCSV">
+
+Vie CSV
+
+</button>
+
+<button id="refresh">
+
+Päivitä
+
+</button>
+
+</div>
+
+<div id="loading">
+
+Haetaan tietoja...
+
+</div>
+
+<div id="error"></div>
+
+<div class="stats">
+
+<div class="card">
+
+<h3>Mittauksia</h3>
+
+<p id="countStat">-</p>
+
+</div>
+
+<div class="card">
+
+<h3>Minimi</h3>
+
+<p id="minStat">-</p>
+
+</div>
+
+<div class="card">
+
+<h3>Maksimi</h3>
+
+<p id="maxStat">-</p>
+
+</div>
+
+<div class="card">
+
+<h3>Keskiarvo</h3>
+
+<p id="avgStat">-</p>
+
+</div>
+
+<div class="card">
+
+<h3>Viimeisin</h3>
+
+<p id="lastStat">-</p>
+
+</div>
+
+</div>
+
+<div id="chartContainer">
+
+<canvas id="tempChart"></canvas>
+
+</div>
+
+<footer>
+
+Hydrologiarajapinta 1.2 • Chart.js • v14
+
+</footer>
+
 </div>
 
 <script>
-    let myChart = null;
 
-    async function searchStations() {
-        const searchTerm = document.getElementById('stationSearch').value.trim();
-        if (!searchTerm) {
-            alert('Syötä hakusana');
-            return;
-        }
+const API_BASE =
+"https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.2/odata";
 
-        const select = document.getElementById('stationSelect');
-        const errorMsg = document.getElementById('errorMsg');
-        const debugInfo = document.getElementById('debugInfo');
-        
-        select.innerHTML = '<option value="loading">Haetaan asemia...</option>';
-        errorMsg.textContent = '';
-        debugInfo.style.display = 'none';
-        
-        const query = `substringof('${searchTerm}', tolower(Nimi))`;
-        const fetchUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka?$filter=${query}`.replace(/ /g, '%20');
+let chart = null;
 
-        try {
-            const response = await fetch(fetchUrl);
-            const textResponse = await response.text();
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${textResponse.substring(0, 100)}`);
-            }
-            
-            const data = JSON.parse(textResponse);
-            const stations = data.value;
+document.getElementById("endDate").value =
+new Date().toISOString().substring(0,10);
+    // ------------------------------
+// API-asetukset
+// ------------------------------
 
-            select.innerHTML = '';
-            if (!stations || stations.length === 0) {
-                select.innerHTML = '<option value="">Ei löytynyt asemia tällä hakusanalla</option>';
-            } else {
-                stations.forEach(station => {
-                    const option = document.createElement('option');
-                    option.value = station.Paikka_Id;
-                    option.text = `${station.Nimi} (ID: ${station.Paikka_Id})`;
-                    select.appendChild(option);
-                });
-            }
-        } catch (error) {
-            select.innerHTML = '<option value="">Asemien haku epäonnistui</option>';
-            errorMsg.textContent = 'Virhe asemien haussa: ' + error.message;
-            debugInfo.style.display = 'block';
-            debugInfo.textContent = "Yritetty URL: " + fetchUrl;
-        }
+const stationSearch = document.getElementById("stationSearch");
+const stationSelect = document.getElementById("stationSelect");
+
+const loadButton = document.getElementById("loadButton");
+const searchButton = document.getElementById("searchButton");
+
+const loading = document.getElementById("loading");
+const error = document.getElementById("error");
+
+// ------------------------------
+// Aputoiminnot
+// ------------------------------
+
+function showLoading(text = "Haetaan tietoja...") {
+
+    loading.style.display = "block";
+    loading.textContent = text;
+
+}
+
+function hideLoading() {
+
+    loading.style.display = "none";
+
+}
+
+function showError(msg) {
+
+    error.textContent = msg;
+
+}
+
+function clearError() {
+
+    error.textContent = "";
+
+}
+
+// ------------------------------
+// Asemien haku
+// ------------------------------
+
+async function searchStations() {
+
+    clearError();
+
+    const term = stationSearch.value.trim();
+
+    if (term.length < 2) {
+
+        showError("Kirjoita vähintään kaksi kirjainta.");
+
+        return;
+
     }
 
-    async function fetchDataAndDrawChart() {
-        const paikkaId = document.getElementById('stationSelect').value;
-        const startDate = document.getElementById('startDate').value;
-        const endDate = document.getElementById('endDate').value;
-        const errorMsg = document.getElementById('errorMsg');
-        const debugInfo = document.getElementById('debugInfo');
-        const loading = document.getElementById('loading');
+    showLoading("Haetaan asemia...");
 
-        errorMsg.textContent = '';
-        debugInfo.style.display = 'none';
+    try {
 
-        if (!paikkaId || isNaN(paikkaId)) {
-            errorMsg.textContent = 'Valitse asema luettelosta.';
-            return;
-        }
+        const params = new URLSearchParams();
 
-        loading.style.display = 'block';
+        params.set(
+            "$filter",
+            `substringof('${term}',tolower(Nimi))`
+        );
 
-        // Vältetään datetime'-sanan aiheuttamat erikoismerkkiongelmat käyttämällä pelkkää ISO-merkkijonoa, jonka OData hyväksyy suoraan
-        const query = `Paikka_Id eq ${paikkaId} and Aika ge '${startDate}T00:00:00Z' and Aika le '${endDate}T23:59:59Z'`;
-        const fetchUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/VedenLampotila?$filter=${query}&$orderby=Aika asc`.replace(/ /g, '%20');
+        params.set("$orderby","Nimi");
 
-        try {
-            const response = await fetch(fetchUrl);
-            const textResponse = await response.text();
+        const url =
+            `${API_BASE}/Paikka?${params.toString()}`;
 
-            if (!response.ok) {
-                throw new Error(`Palvelin palautti virheen ${response.status}: ${textResponse.substring(0, 150)}`);
+        console.log(url);
+
+        const response = await fetch(url,{
+            headers:{
+                "Accept":"application/json"
             }
-            
-            let data;
-            try {
-                data = JSON.parse(textResponse);
-            } catch (e) {
-                throw new Error("Datan muuntaminen JSONiksi epäonnistui.");
-            }
-
-            const observations = data.value;
-
-            if (!observations || observations.length === 0) {
-                errorMsg.textContent = 'Valitulta aikaväliltä ei löytynyt lämpötilahavaintoja tälle asemalle. Kokeile laajempaa aikaväliä.';
-                loading.style.display = 'none';
-                return;
-            }
-
-            const labels = observations.map(obs => new Date(obs.Aika).toLocaleDateString('fi-FI'));
-            const values = observations.map(obs => obs.Arvo);
-
-            drawChart(labels, values, document.getElementById('stationSelect').options[document.getElementById('stationSelect').selectedIndex].text);
-
-        } catch (error) {
-            errorMsg.innerHTML = `Latausvirhe: ${error.message}`;
-            debugInfo.style.display = 'block';
-            debugInfo.textContent = "Kohde-URL: " + fetchUrl;
-        } finally {
-            loading.style.display = 'none';
-        }
-    }
-
-    function drawChart(labels, data, stationName) {
-        const ctx = document.getElementById('tempChart').getContext('2d');
-        if (myChart) myChart.destroy();
-        myChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: `Lämpötila (°C) - ${stationName}`,
-                    data: data,
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                    borderWidth: 2, pointRadius: 1, fill: true, tension: 0.1
-                }]
-            },
-            options: { responsive: true, maintainAspectRatio: false }
         });
+
+        if(!response.ok){
+
+            throw new Error(
+                "HTTP "+response.status
+            );
+
+        }
+
+        const json = await response.json();
+
+        stationSelect.innerHTML = "";
+
+        if(json.value.length===0){
+
+            stationSelect.innerHTML =
+            "<option>Ei asemia</option>";
+
+            hideLoading();
+
+            return;
+
+        }
+
+        json.value.forEach(station=>{
+
+            const option =
+            document.createElement("option");
+
+            option.value =
+            station.Paikka_Id;
+
+            option.textContent =
+            `${station.Nimi} (${station.Paikka_Id})`;
+
+            stationSelect.appendChild(option);
+
+        });
+
     }
 
-    window.onload = searchStations;
-</script>
+    catch(err){
 
-</body>
-</html>
+        showError(err.message);
+
+    }
+
+    hideLoading();
+
+    }
+    // ------------------------------
+// Lämpötilojen haku
+// ------------------------------
+
+loadButton.addEventListener("click", loadTemperatures);
+
+async function loadTemperatures() {
+
+    clearError();
+
+    const paikkaId = stationSelect.value;
+
+    if (!paikkaId) {
+        showError("Valitse asema.");
+        return;
+    }
+
+    showLoading("Haetaan lämpötiloja...");
+
+    try {
+
+        const start =
+            document.getElementById("startDate").value;
+
+        const end =
+            document.getElementById("endDate").value;
+
+        const params = new URLSearchParams();
+
+        params.set(
+            "$filter",
+            `Paikka_Id eq ${paikkaId} and Aika ge datetime'${start}T00:00:00' and Aika le datetime'${end}T23:59:59'`
+        );
+
+        params.set("$orderby","Aika asc");
+
+        const url =
+            `${API_BASE}/LampoPintavesi?${params.toString()}`;
+
+        console.log(url);
+
+        const response = await fetch(url,{
+            headers:{
+                "Accept":"application/json"
+            }
+        });
+
+        if(!response.ok){
+
+            throw new Error(
+                "HTTP " + response.status
+            );
+
+        }
+
+        const json =
+            await response.json();
+
+        if(!json.value.length){
+
+            throw new Error(
+                "Mittauksia ei löytynyt."
+            );
+
+        }
+
+        const labels = [];
+        const values = [];
+
+        json.value.forEach(r=>{
+
+            labels.push(
+                new Date(r.Aika)
+                .toLocaleDateString("fi-FI")
+            );
+
+            values.push(
+                Number(r.Arvo)
+            );
+
+        });
+
+        updateStatistics(values);
+
+        drawChart(labels,values);
+
+    }
+
+    catch(err){
+
+        showError(err.message);
+
+    }
+
+    hideLoading();
+
+}
+    // ----------------------------------------------------
+// Tilastojen laskenta
+// ----------------------------------------------------
+
+function updateStatistics(values) {
+
+    if (!values || values.length === 0) return;
+
+    const count = values.length;
+
+    const min = Math.min(...values);
+
+    const max = Math.max(...values);
+
+    const avg =
+        values.reduce((a,b)=>a+b,0) / count;
+
+    const sorted =
+        [...values].sort((a,b)=>a-b);
+
+    const median =
+        sorted.length % 2 === 0
+        ?
+        (
+            sorted[sorted.length/2-1]
+            +
+            sorted[sorted.length/2]
+        ) / 2
+        :
+        sorted[Math.floor(sorted.length/2)];
+
+    document.getElementById("countStat").textContent =
+        count;
+
+    document.getElementById("minStat").textContent =
+        min.toFixed(1) + " °C";
+
+    document.getElementById("maxStat").textContent =
+        max.toFixed(1) + " °C";
+
+    document.getElementById("avgStat").textContent =
+        avg.toFixed(1) + " °C";
+
+    document.getElementById("lastStat").textContent =
+        values[values.length-1].toFixed(1) + " °C";
+
+    console.log({
+        count,
+        min,
+        max,
+        avg,
+        median
+    });
+    
+// ----------------------------------------------------
+// CSV-vienti
+// ----------------------------------------------------
+
+document
+.getElementById("exportCSV")
+.addEventListener("click",exportCSV);
+
+function exportCSV(){
+
+    if(currentValues.length===0){
+
+        alert("Ei vietävää dataa.");
+
+        return;
+
+    }
+
+    let csv="Päivämäärä;Lämpötila\n";
+
+    for(let i=0;i<currentValues.length;i++){
+
+        csv+=
+        currentLabels[i] +
+        ";" +
+        currentValues[i] +
+        "\n";
+
+    }
+
+    const blob=
+    new Blob(
+        [csv],
+        {
+            type:"text/csv;charset=utf-8;"
+        }
+    );
+
+    const url=
+    URL.createObjectURL(blob);
+
+    const a=
+    document.createElement("a");
+
+    a.href=url;
+
+    a.download="veden_lampotilat.csv";
+
+    a.click();
+
+    URL.revokeObjectURL(url);
+
+}
+
+    
