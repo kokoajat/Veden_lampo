@@ -489,12 +489,6 @@ let lastStationResults = [];
 let comparisonMode = false;
 let comparisonExportData = null; // { labels: [...], years: [{year, values:[...]}] }
 
-// Pintaveden lämpötilan Suure_Id haetaan rajapinnasta kerran ja
-// muistetaan. Sen avulla asemahausta voidaan karsia pois asemat,
-// jotka mittaavat jotain muuta suuretta (vedenkorkeus, virtaama...).
-let tempSuureId = null;
-let tempSuureLookupDone = false;
-
 document.getElementById("endDate").value =
 new Date().toISOString().substring(0,10);
 
@@ -550,55 +544,45 @@ function clearError() {
 // Asemien haku
 // ------------------------------
 
-// Hakee Suure-taulun ja etsii sieltä sen suureen, jonka data löytyy
-// LampoPintavesi-taulusta. Taulu on pieni (~15 riviä), joten se haetaan
-// kokonaan ja suodatetaan selaimessa - näin vältetään OData-filtterin
-// kenttänimien arvailu. Tulos muistetaan istunnon ajaksi.
-async function getTempSuureId() {
+// Tarkistaa onko asemalla lainkaan pintaveden lämpötiladataa kysymällä
+// sitä suoraan LampoPintavesi-taulusta. Tämä on luotettavampi kuin
+// metatietoon (Suure_Id) luottaminen, koska se testaa itse datan
+// olemassaolon. Palauttaa viimeisimmän mittauspäivän tai null.
+async function probeStation(paikkaId) {
 
-    if (tempSuureLookupDone) {
-        return tempSuureId;
-    }
+    const params = new URLSearchParams();
 
-    tempSuureLookupDone = true;
+    params.set("$filter", `Paikka_Id eq ${paikkaId}`);
+    params.set("$orderby", "Aika desc");
+    params.set("$top", "1");
+
+    const url = `${API_BASE}/LampoPintavesi?${params.toString()}`;
 
     try {
-
-        const url = `${API_BASE}/Suure`;
-
-        console.log(url);
 
         const response = await fetch(url, {
             headers: { "Accept": "application/json" }
         });
 
-        if (!response.ok) {
-            throw new Error("HTTP " + response.status);
-        }
+        if (!response.ok) return null;
 
         const json = await response.json();
 
-        const match = json.value.find(s =>
-            s.DatataulunNimi === "LampoPintavesi" ||
-            s.taulunnimi === "LampoPintavesi"
-        );
+        if (!json.value || !json.value.length) return null;
 
-        if (match) {
-            tempSuureId = match.Suure_Id;
-            console.log("Pintaveden lämpötilan Suure_Id:", tempSuureId, match.Nimi);
-        } else {
-            console.warn("Suure-taulusta ei löytynyt LampoPintavesi-riviä.");
-        }
+        return new Date(json.value[0].Aika);
 
     }
 
     catch (err) {
-        console.warn("Suure_Id:n haku epäonnistui, suodatus ohitetaan:", err.message);
+        console.warn("Aseman " + paikkaId + " tarkistus epäonnistui:", err.message);
+        return null;
     }
 
-    return tempSuureId;
-
 }
+
+// Kuinka montaa asemaa korkeintaan tarkistetaan (suojaa laajaa hakua vastaan)
+const MAX_PROBE = 30;
 
 async function searchStations() {
 
@@ -619,24 +603,13 @@ async function searchStations() {
 
     try {
 
-        // Selvitä lämpötilasuureen tunnus, jos suodatus on päällä
-        let suureId = null;
-
-        if (onlyTempStations.checked) {
-            suureId = await getTempSuureId();
-        }
-
         const params = new URLSearchParams();
 
         // Huom: haku pienillä kirjaimilla, jotta täsmää tolower(Nimi):iin
-        let filter =
-            `substringof('${term.toLowerCase()}',tolower(Nimi))`;
-
-        if (suureId !== null) {
-            filter += ` and Suure_Id eq ${suureId}`;
-        }
-
-        params.set("$filter", filter);
+        params.set(
+            "$filter",
+            `substringof('${term.toLowerCase()}',tolower(Nimi))`
+        );
 
         params.set("$orderby","Nimi");
 
@@ -669,13 +642,7 @@ async function searchStations() {
             stationSelect.innerHTML =
             "<option>Ei asemia</option>";
 
-            if (onlyTempStations.checked) {
-                showError(
-                    `Hakusanalla "${term}" ei löytynyt lämpötila-asemia. Poista rasti ruudusta nähdäksesi kaikki asemat.`
-                );
-            } else {
-                showError(`Hakusanalla "${term}" ei löytynyt asemia.`);
-            }
+            showError(`Hakusanalla "${term}" ei löytynyt asemia.`);
 
             hideLoading();
             searchButton.disabled = false;
@@ -684,31 +651,92 @@ async function searchStations() {
 
         }
 
-        json.value.forEach(station=>{
+        // Lista näytettävistä asemista: { Paikka_Id, Nimi, latest }
+        let stations = [];
+        let truncated = false;
 
-            const option =
-            document.createElement("option");
+        if (onlyTempStations.checked) {
 
-            option.value =
-            station.Paikka_Id;
+            let candidates = json.value;
 
-            option.textContent =
-            `${station.Nimi} (${station.Paikka_Id})`;
+            if (candidates.length > MAX_PROBE) {
+                candidates = candidates.slice(0, MAX_PROBE);
+                truncated = true;
+            }
+
+            showLoading(`Tarkistetaan lämpötiladata (${candidates.length} asemaa)...`);
+
+            // Tarkistukset rinnakkain, jotta odotus pysyy lyhyenä
+            const probes = await Promise.all(
+                candidates.map(s => probeStation(s.Paikka_Id))
+            );
+
+            candidates.forEach((s, i) => {
+                if (probes[i] !== null) {
+                    stations.push({
+                        Paikka_Id: s.Paikka_Id,
+                        Nimi: s.Nimi,
+                        latest: probes[i]
+                    });
+                }
+            });
+
+        }
+
+        else {
+
+            stations = json.value.map(s => ({
+                Paikka_Id: s.Paikka_Id,
+                Nimi: s.Nimi,
+                latest: null
+            }));
+
+        }
+
+        if (stations.length === 0) {
+
+            stationSelect.innerHTML =
+            "<option>Ei lämpötila-asemia</option>";
+
+            showError(
+                `Hakusanalla "${term}" löytyi ${json.value.length} asemaa, mutta yhdelläkään ei ole pintaveden lämpötiladataa. Poista rasti ruudusta nähdäksesi kaikki asemat.`
+            );
+
+            hideLoading();
+            searchButton.disabled = false;
+
+            return;
+
+        }
+
+        // Uusin data ensin - aktiiviset asemat ylimmäksi
+        if (onlyTempStations.checked) {
+            stations.sort((a,b) => b.latest - a.latest);
+        }
+
+        stations.forEach(s => {
+
+            const option = document.createElement("option");
+
+            option.value = s.Paikka_Id;
+
+            option.textContent = s.latest
+                ? `${s.Nimi} (${s.Paikka_Id}) – dataa ${s.latest.getFullYear()} asti`
+                : `${s.Nimi} (${s.Paikka_Id})`;
 
             stationSelect.appendChild(option);
 
             lastStationResults.push({
-                Paikka_Id: station.Paikka_Id,
-                Nimi: station.Nimi
+                Paikka_Id: s.Paikka_Id,
+                Nimi: s.Nimi,
+                latest: s.latest
             });
 
         });
 
-        // Jos suodatus oli päällä mutta Suure_Id:tä ei saatu haettua,
-        // kerro ettei karsintaa voitu tehdä.
-        if (onlyTempStations.checked && suureId === null) {
+        if (truncated) {
             showError(
-                "Huom: lämpötila-asemien tunnistus epäonnistui, joten listassa voi olla myös muita mittausasemia."
+                `Huom: tarkistettiin vain ${MAX_PROBE} ensimmäistä asemaa. Tarkenna hakusanaa nähdäksesi loput.`
             );
         }
 
@@ -1082,8 +1110,19 @@ async function compareYears() {
         }
 
         if (yearData.length === 0) {
+
+            const station = lastStationResults.find(
+                s => String(s.Paikka_Id) === String(paikkaId)
+            );
+
+            let hint = "";
+
+            if (station && station.latest) {
+                hint = ` Tällä asemalla on dataa ${station.latest.getFullYear()} asti – kokeile lähempänä olevia vuosia.`;
+            }
+
             throw new Error(
-                `Mittauksia ei löytynyt yhdeltäkään vuodelta (${years.join(", ")}) tällä ajanjaksolla.`
+                `Mittauksia ei löytynyt yhdeltäkään vuodelta (${years.join(", ")}) ajanjaksolla ${startMD.replace("-",".")}–${endMD.replace("-",".")}.` + hint
             );
         }
 
