@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v7</title>
+    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v8</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f8; color: #333; margin: 0; padding: 20px; }
@@ -78,16 +78,23 @@
         
         select.innerHTML = '<option value="loading">Haetaan asemia...</option>';
         errorMsg.textContent = '';
+        debugInfo.style.display = 'none';
         
-        // Lisätty &$format=json pakottamaan JSON-vastaus
-        const targetUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka?$filter=substringof('${searchTerm}', tolower(Nimi))&$format=json`;
-        const proxyUrl = `https://corsproxy.io/?` + encodeURIComponent(targetUrl);
+        // Rakennetaan URL turvallisesti natiivilla URLSearchParams-oliolla
+        const baseUrl = 'https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka';
+        const params = new URLSearchParams({
+            '$filter': `substringof('${searchTerm}', tolower(Nimi))`,
+            '$format': 'json'
+        });
+        const fetchUrl = `${baseUrl}?${params.toString()}`;
 
         try {
-            const response = await fetch(proxyUrl);
+            const response = await fetch(fetchUrl);
             const textResponse = await response.text();
             
-            if (!response.ok) throw new Error(`HTTP ${response.status}: ${textResponse.substring(0, 100)}`);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${textResponse.substring(0, 100)}`);
+            }
             
             const data = JSON.parse(textResponse);
             const stations = data.value;
@@ -106,6 +113,8 @@
         } catch (error) {
             select.innerHTML = '<option value="">Asemien haku epäonnistui</option>';
             errorMsg.textContent = 'Virhe asemien haussa: ' + error.message;
+            debugInfo.style.display = 'block';
+            debugInfo.textContent = "Yritetty URL: " + fetchUrl;
         }
     }
 
@@ -127,12 +136,17 @@
 
         loading.style.display = 'block';
 
-        // Lisätty &$format=json pakottamaan JSON-vastaus OData-rajapinnalta
-        const targetUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/VedenLampotila?$filter=Paikka_Id eq ${paikkaId} and Aika ge datetime'${startDate}T00:00:00' and Aika le datetime'${endDate}T23:59:59'&$orderby=Aika asc&$format=json`;
-        const proxyUrl = `https://corsproxy.io/?` + encodeURIComponent(targetUrl);
+        // Rakennetaan päivämääräkysely turvallisesti
+        const baseUrl = 'https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/VedenLampotila';
+        const params = new URLSearchParams({
+            '$filter': `Paikka_Id eq ${paikkaId} and Aika ge datetime'${startDate}T00:00:00' and Aika le datetime'${endDate}T23:59:59'`,
+            '$orderby': 'Aika asc',
+            '$format': 'json'
+        });
+        const fetchUrl = `${baseUrl}?${params.toString()}`;
 
         try {
-            const response = await fetch(proxyUrl);
+            const response = await fetch(fetchUrl);
             const textResponse = await response.text();
 
             if (!response.ok) {
@@ -143,7 +157,7 @@
             try {
                 data = JSON.parse(textResponse);
             } catch (e) {
-                throw new Error("Datan muuntaminen JSONiksi epäonnistui (Tarkista URL).");
+                throw new Error("Datan muuntaminen JSONiksi epäonnistui.");
             }
 
             const observations = data.value;
@@ -162,7 +176,7 @@
         } catch (error) {
             errorMsg.innerHTML = `Latausvirhe: ${error.message}`;
             debugInfo.style.display = 'block';
-            debugInfo.textContent = "Kohde-URL: " + targetUrl;
+            debugInfo.textContent = "Kohde-URL: " + fetchUrl;
         } finally {
             loading.style.display = 'none';
         }
@@ -192,3 +206,4 @@
 
 </body>
 </html>
+
