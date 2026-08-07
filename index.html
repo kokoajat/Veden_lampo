@@ -434,6 +434,12 @@ let chart = null;
 let currentLabels = [];
 let currentValues = [];
 
+// Viimeisimmän asemahaun tulokset talteen (Paikka_Id + Nimi),
+// jotta voimme kokeilla saman nimisiä "sisaraseamia" jos valitulla
+// asemalla ei ole pintaveden lämpötiladataa (SYKE rekisteröi saman
+// paikan usealla eri Paikka_Id:llä, yksi per mittaussuure).
+let lastStationResults = [];
+
 document.getElementById("endDate").value =
 new Date().toISOString().substring(0,10);
 
@@ -537,6 +543,7 @@ async function searchStations() {
         const json = await response.json();
 
         stationSelect.innerHTML = "";
+        lastStationResults = [];
 
         if(json.value.length===0){
 
@@ -562,6 +569,11 @@ async function searchStations() {
             `${station.Nimi} (${station.Paikka_Id})`;
 
             stationSelect.appendChild(option);
+
+            lastStationResults.push({
+                Paikka_Id: station.Paikka_Id,
+                Nimi: station.Nimi
+            });
 
         });
 
@@ -595,6 +607,61 @@ stationSearch.addEventListener("keydown", (e) => {
 loadButton.addEventListener("click", loadTemperatures);
 refreshButton.addEventListener("click", loadTemperatures);
 
+// Hakee LampoPintavesi-datan yhdelle Paikka_Id:lle.
+// Palauttaa {labels, values} tai null, jos mittauksia ei löytynyt.
+// Heittää virheen vain HTTP-tason ongelmista (esim. verkkovirhe).
+async function fetchTemperatureData(paikkaId, start, end) {
+
+    const params = new URLSearchParams();
+
+    params.set(
+        "$filter",
+        `Paikka_Id eq ${paikkaId} and Aika ge datetime'${start}T00:00:00' and Aika le datetime'${end}T23:59:59'`
+    );
+
+    params.set("$orderby","Aika asc");
+
+    const url =
+        `${API_BASE}/LampoPintavesi?${params.toString()}`;
+
+    console.log(url);
+
+    const response = await fetch(url,{
+        headers:{
+            "Accept":"application/json"
+        }
+    });
+
+    if(!response.ok){
+        throw new Error("HTTP " + response.status);
+    }
+
+    const json = await response.json();
+
+    if(!json.value.length){
+        return null;
+    }
+
+    const labels = [];
+    const values = [];
+
+    json.value.forEach(r=>{
+
+        labels.push(
+            new Date(r.Aika)
+            .toLocaleDateString("fi-FI")
+        );
+
+        values.push(
+            Number(r.Arvo)
+        );
+
+    });
+
+    return { labels, values };
+
+}
+
 async function loadTemperatures() {
 
     clearError();
@@ -621,68 +688,67 @@ async function loadTemperatures() {
             throw new Error("Valitse alku- ja loppupäivä.");
         }
 
-        const params = new URLSearchParams();
+        // 1. Kokeile ensin käyttäjän valitsemaa asemaa.
+        let result = await fetchTemperatureData(paikkaId, start, end);
+        let usedPaikkaId = paikkaId;
 
-        params.set(
-            "$filter",
-            `Paikka_Id eq ${paikkaId} and Aika ge datetime'${start}T00:00:00' and Aika le datetime'${end}T23:59:59'`
-        );
+        // 2. Jos ei dataa, kokeile muita samannimisiä "sisaraseamia"
+        //    hakutuloksista (SYKE rekisteröi saman paikan usealla eri
+        //    Paikka_Id:llä, yksi per mittaussuure - vain yhdellä on
+        //    pintaveden lämpötiladataa).
+        if (!result) {
 
-        params.set("$orderby","Aika asc");
+            const selectedStation =
+                lastStationResults.find(s => String(s.Paikka_Id) === String(paikkaId));
 
-        const url =
-            `${API_BASE}/LampoPintavesi?${params.toString()}`;
+            if (selectedStation) {
 
-        console.log(url);
+                const siblings = lastStationResults.filter(s =>
+                    s.Nimi === selectedStation.Nimi &&
+                    String(s.Paikka_Id) !== String(paikkaId)
+                );
 
-        const response = await fetch(url,{
-            headers:{
-                "Accept":"application/json"
+                for (const sibling of siblings) {
+
+                    showLoading(`Kokeillaan asemaa ${sibling.Nimi} (${sibling.Paikka_Id})...`);
+
+                    const siblingResult =
+                        await fetchTemperatureData(sibling.Paikka_Id, start, end);
+
+                    if (siblingResult) {
+                        result = siblingResult;
+                        usedPaikkaId = sibling.Paikka_Id;
+                        break;
+                    }
+
+                }
+
             }
-        });
-
-        if(!response.ok){
-
-            throw new Error(
-                "HTTP " + response.status
-            );
 
         }
 
-        const json =
-            await response.json();
-
-        if(!json.value.length){
-
+        if (!result) {
             throw new Error(
-                "Mittauksia ei löytynyt valitulla aikavälillä."
+                "Mittauksia ei löytynyt valitulla aikavälillä yhdeltäkään samannimiseltä asemalta."
             );
-
         }
 
-        const labels = [];
-        const values = [];
-
-        json.value.forEach(r=>{
-
-            labels.push(
-                new Date(r.Aika)
-                .toLocaleDateString("fi-FI")
+        // Jos päädyttiin toiseen asemaan kuin valikossa oli valittuna,
+        // päivitä valikko ja kerro käyttäjälle mitä tehtiin.
+        if (String(usedPaikkaId) !== String(paikkaId)) {
+            stationSelect.value = usedPaikkaId;
+            showError(
+                `Huom: valitulla asemalla ei ollut lämpötiladataa. Näytetään tiedot asemalta Paikka_Id ${usedPaikkaId}.`
             );
-
-            values.push(
-                Number(r.Arvo)
-            );
-
-        });
+        }
 
         // Talteen CSV-vientiä varten
-        currentLabels = labels;
-        currentValues = values;
+        currentLabels = result.labels;
+        currentValues = result.values;
 
-        updateStatistics(values);
+        updateStatistics(result.values);
 
-        drawChart(labels,values);
+        drawChart(result.labels, result.values);
 
     }
 
