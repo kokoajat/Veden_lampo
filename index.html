@@ -6,7 +6,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>SYKE Pintaveden lämpötilat v14</title>
+<title>SYKE Pintaveden lämpötilat v15</title>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -101,6 +101,14 @@ button{
 button:hover{
 
     background:#003f86;
+
+}
+
+button:disabled{
+
+    background:#9ab4d1;
+
+    cursor:not-allowed;
 
 }
 
@@ -254,7 +262,7 @@ grid-template-columns:1fr 1fr;
 
 <div class="container">
 
-<h1>SYKE Pintaveden lämpötilat v14</h1>
+<h1>SYKE Pintaveden lämpötilat v15</h1>
 
 <div class="form-group">
 
@@ -290,7 +298,7 @@ Etsi
 
 <select id="stationSelect">
 
-<option>Ladataan asemia...</option>
+<option>Kirjoita hakusana ja paina Etsi</option>
 
 </select>
 
@@ -409,7 +417,7 @@ Haetaan tietoja...
 
 <footer>
 
-Hydrologiarajapinta 1.2 • Chart.js • v14
+Hydrologiarajapinta 1.2 • Chart.js • v15 (korjattu)
 
 </footer>
 
@@ -422,10 +430,15 @@ const API_BASE =
 
 let chart = null;
 
+// Nykyisen kuvaajan data talteen CSV-vientiä varten
+let currentLabels = [];
+let currentValues = [];
+
 document.getElementById("endDate").value =
 new Date().toISOString().substring(0,10);
-    // ------------------------------
-// API-asetukset
+
+// ------------------------------
+// Elementtiviittaukset
 // ------------------------------
 
 const stationSearch = document.getElementById("stationSearch");
@@ -433,6 +446,9 @@ const stationSelect = document.getElementById("stationSelect");
 
 const loadButton = document.getElementById("loadButton");
 const searchButton = document.getElementById("searchButton");
+const savePNGButton = document.getElementById("savePNG");
+const refreshButton = document.getElementById("refresh");
+const exportCSVButton = document.getElementById("exportCSV");
 
 const loading = document.getElementById("loading");
 const error = document.getElementById("error");
@@ -485,14 +501,16 @@ async function searchStations() {
     }
 
     showLoading("Haetaan asemia...");
+    searchButton.disabled = true;
 
     try {
 
         const params = new URLSearchParams();
 
+        // Huom: haku pienillä kirjaimilla, jotta täsmää tolower(Nimi):iin
         params.set(
             "$filter",
-            `substringof('${term}',tolower(Nimi))`
+            `substringof('${term.toLowerCase()}',tolower(Nimi))`
         );
 
         params.set("$orderby","Nimi");
@@ -526,6 +544,7 @@ async function searchStations() {
             "<option>Ei asemia</option>";
 
             hideLoading();
+            searchButton.disabled = false;
 
             return;
 
@@ -550,18 +569,31 @@ async function searchStations() {
 
     catch(err){
 
-        showError(err.message);
+        showError("Asemien haku epäonnistui: " + err.message);
 
     }
 
     hideLoading();
+    searchButton.disabled = false;
 
+}
+
+searchButton.addEventListener("click", searchStations);
+
+// Mahdollistaa haun myös Enter-näppäimellä
+stationSearch.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+        e.preventDefault();
+        searchStations();
     }
-    // ------------------------------
+});
+
+// ------------------------------
 // Lämpötilojen haku
 // ------------------------------
 
 loadButton.addEventListener("click", loadTemperatures);
+refreshButton.addEventListener("click", loadTemperatures);
 
 async function loadTemperatures() {
 
@@ -569,12 +601,13 @@ async function loadTemperatures() {
 
     const paikkaId = stationSelect.value;
 
-    if (!paikkaId) {
-        showError("Valitse asema.");
+    if (!paikkaId || isNaN(Number(paikkaId))) {
+        showError("Valitse ensin asema hakutuloksista.");
         return;
     }
 
     showLoading("Haetaan lämpötiloja...");
+    loadButton.disabled = true;
 
     try {
 
@@ -583,6 +616,10 @@ async function loadTemperatures() {
 
         const end =
             document.getElementById("endDate").value;
+
+        if (!start || !end) {
+            throw new Error("Valitse alku- ja loppupäivä.");
+        }
 
         const params = new URLSearchParams();
 
@@ -618,7 +655,7 @@ async function loadTemperatures() {
         if(!json.value.length){
 
             throw new Error(
-                "Mittauksia ei löytynyt."
+                "Mittauksia ei löytynyt valitulla aikavälillä."
             );
 
         }
@@ -639,6 +676,10 @@ async function loadTemperatures() {
 
         });
 
+        // Talteen CSV-vientiä varten
+        currentLabels = labels;
+        currentValues = values;
+
         updateStatistics(values);
 
         drawChart(labels,values);
@@ -652,9 +693,11 @@ async function loadTemperatures() {
     }
 
     hideLoading();
+    loadButton.disabled = false;
 
 }
-    // ----------------------------------------------------
+
+// ----------------------------------------------------
 // Tilastojen laskenta
 // ----------------------------------------------------
 
@@ -707,20 +750,91 @@ function updateStatistics(values) {
         avg,
         median
     });
-    
+
+}
+
+// ----------------------------------------------------
+// Kaavion piirto
+// ----------------------------------------------------
+
+function drawChart(labels, values) {
+
+    const ctx = document.getElementById("tempChart").getContext("2d");
+
+    if (chart) {
+        chart.destroy();
+    }
+
+    chart = new Chart(ctx, {
+        type: "line",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "Pintaveden lämpötila (°C)",
+                data: values,
+                borderColor: "#0056b3",
+                backgroundColor: "rgba(0,86,179,0.1)",
+                fill: true,
+                tension: 0.2,
+                pointRadius: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    title: {
+                        display: true,
+                        text: "°C"
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: "Päivämäärä"
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true
+                }
+            }
+        }
+    });
+
+}
+
+// ----------------------------------------------------
+// PNG-tallennus
+// ----------------------------------------------------
+
+savePNGButton.addEventListener("click", () => {
+
+    if (!chart) {
+        alert("Ei kaaviota tallennettavaksi. Hae ensin lämpötiloja.");
+        return;
+    }
+
+    const link = document.createElement("a");
+    link.href = chart.toBase64Image();
+    link.download = "veden_lampotilat.png";
+    link.click();
+
+});
+
 // ----------------------------------------------------
 // CSV-vienti
 // ----------------------------------------------------
 
-document
-.getElementById("exportCSV")
-.addEventListener("click",exportCSV);
+exportCSVButton.addEventListener("click", exportCSV);
 
 function exportCSV(){
 
     if(currentValues.length===0){
 
-        alert("Ei vietävää dataa.");
+        alert("Ei vietävää dataa. Hae ensin lämpötiloja.");
 
         return;
 
@@ -762,4 +876,8 @@ function exportCSV(){
 
 }
 
-    
+</script>
+
+</body>
+
+</html>
