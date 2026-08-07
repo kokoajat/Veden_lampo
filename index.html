@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v3</title>
+    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v4</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f8; color: #333; margin: 0; padding: 20px; }
@@ -78,11 +78,11 @@
         select.innerHTML = '<option>Haetaan...</option>';
         errorMsg.textContent = '';
         
-        // Varmistetaan, että haku-URL on koodattu (mobiiliselaimet voivat kaatua URLin välilyönteihin ym.)
-        const url = encodeURI(`https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka?$filter=substringof('${searchTerm}', tolower(Nimi))`);
+        const targetUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka?$filter=substringof('${searchTerm}', tolower(Nimi))`;
+        const proxyUrl = `https://api.allorigins.win/raw?url=` + encodeURIComponent(targetUrl);
 
         try {
-            const response = await fetch(url);
+            const response = await fetch(proxyUrl);
             if (!response.ok) throw new Error(`HTTP virhe: ${response.status}`);
             
             const data = await response.json();
@@ -123,15 +123,13 @@
 
         loading.style.display = 'block';
 
-        // SYKE OData v3 vaatii tarkan datetime-syntaksin. 
-        // Välilyönnit on välttämätöntä koodata encodeURI:lla, jotta vältytään TypeError: Failed to fetch -virheeltä.
-        const rawUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/VedenLampotila?$filter=Paikka_Id eq ${paikkaId} and Aika ge datetime'${startDate}T00:00:00' and Aika le datetime'${endDate}T23:59:59'&$orderby=Aika asc`;
-        const encodedUrl = encodeURI(rawUrl);
+        const targetUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/VedenLampotila?$filter=Paikka_Id eq ${paikkaId} and Aika ge datetime'${startDate}T00:00:00' and Aika le datetime'${endDate}T23:59:59'&$orderby=Aika asc`;
+        const proxyUrl = `https://api.allorigins.win/raw?url=` + encodeURIComponent(targetUrl);
 
         try {
-            const response = await fetch(encodedUrl);
+            const response = await fetch(proxyUrl);
             if (!response.ok) {
-                throw new Error(`SYKE API palautti virheen: ${response.status} ${response.statusText}`);
+                throw new Error(`API palautti virheen: ${response.status} ${response.statusText}`);
             }
             
             const data = await response.json();
@@ -149,9 +147,9 @@
             drawChart(labels, values, document.getElementById('stationSelect').options[document.getElementById('stationSelect').selectedIndex].text);
 
         } catch (error) {
-            errorMsg.innerHTML = `Latausvirhe: ${error.message} <br><br>Vinkki: Jos käytät puhelinta, tarkista ettei selaimessasi ole päällä tiukkaa mainostenestoa (AdBlock / Brave Shields / tracker block), joka voisi estää yhteyden ympäristöhallinnon palvelimelle.`;
+            errorMsg.innerHTML = `Latausvirhe: ${error.message}`;
             debugInfo.style.display = 'block';
-            debugInfo.textContent = "Yritetty URL: " + encodedUrl;
+            debugInfo.textContent = "Kohde-URL: " + targetUrl;
         } finally {
             loading.style.display = 'none';
         }
