@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v12</title>
+    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v13</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f8; color: #333; margin: 0; padding: 20px; }
@@ -25,7 +25,7 @@
 <body>
 
 <div class="container">
-    <h1>Vesistöjen pintaveden lämpötilat v12</h1>
+    <h1>Vesistöjen pintaveden lämpötilat v13</h1>
 
     <div class="form-group">
         <label for="stationSearch">1. Etsi mittausasema (esim. "Inari" tai "Nellim")</label>
@@ -81,9 +81,6 @@
         errorMsg.textContent = '';
         debugInfo.style.display = 'none';
         
-        // PALAUTETTU VERSIO 1:N TOIMIVA HAKU.
-        // SYKE API ei kestä liiallista URL-koodausta (esim $ -> %24 tai = -> %3D).
-        // Korvataan vain välilyönnit %20, jotta selain ei kaadu huonosti muotoiltuun osoitteeseen.
         const query = `substringof('${searchTerm}', tolower(Nimi))`;
         const fetchUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka?$filter=${query}`.replace(/ /g, '%20');
 
@@ -135,8 +132,8 @@
 
         loading.style.display = 'block';
 
-        // Käytetään alkuperäistä datetime-formaattia ja koodataan turvallisesti vain välilyönnit
-        const query = `Paikka_Id eq ${paikkaId} and Aika ge datetime'${startDate}T00:00:00' and Aika le datetime'${endDate}T23:59:59'`;
+        // Vältetään datetime'-sanan aiheuttamat erikoismerkkiongelmat käyttämällä pelkkää ISO-merkkijonoa, jonka OData hyväksyy suoraan
+        const query = `Paikka_Id eq ${paikkaId} and Aika ge '${startDate}T00:00:00Z' and Aika le '${endDate}T23:59:59Z'`;
         const fetchUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/VedenLampotila?$filter=${query}&$orderby=Aika asc`.replace(/ /g, '%20');
 
         try {
