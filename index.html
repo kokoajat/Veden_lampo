@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v4</title>
+    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v5</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f8; color: #333; margin: 0; padding: 20px; }
@@ -38,7 +38,7 @@
     <div class="form-group">
         <label for="stationSelect">Valitse asema</label>
         <select id="stationSelect">
-            <option value="">Etsi ensin asemia yllä olevalla kentällä...</option>
+            <option value="">Ladataan...</option>
         </select>
     </div>
 
@@ -75,7 +75,8 @@
 
         const select = document.getElementById('stationSelect');
         const errorMsg = document.getElementById('errorMsg');
-        select.innerHTML = '<option>Haetaan...</option>';
+        
+        select.innerHTML = '<option value="loading">Haetaan asemia...</option>';
         errorMsg.textContent = '';
         
         const targetUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka?$filter=substringof('${searchTerm}', tolower(Nimi))`;
@@ -89,7 +90,7 @@
             const stations = data.value;
 
             select.innerHTML = '';
-            if (stations.length === 0) {
+            if (!stations || stations.length === 0) {
                 select.innerHTML = '<option value="">Ei löytynyt asemia tällä hakusanalla</option>';
             } else {
                 stations.forEach(station => {
@@ -100,7 +101,7 @@
                 });
             }
         } catch (error) {
-            select.innerHTML = '<option value="">Virhe asemien haussa</option>';
+            select.innerHTML = '<option value="">Asemien haku epäonnistui</option>';
             errorMsg.textContent = 'Virhe asemien haussa: ' + error.message;
         }
     }
@@ -116,8 +117,9 @@
         errorMsg.textContent = '';
         debugInfo.style.display = 'none';
 
-        if (!paikkaId) {
-            errorMsg.textContent = 'Valitse ensin mittausasema.';
+        // Estetään kyselyt puutteellisilla tai väärillä data-tyypeillä
+        if (!paikkaId || isNaN(paikkaId)) {
+            errorMsg.textContent = 'Odota hetki, että asemat ladataan, ja valitse sitten kelvollinen asema luettelosta.';
             return;
         }
 
