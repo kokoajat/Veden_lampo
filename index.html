@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title> V11 SYKE Veden Lämpötila - Tilastot ja Kaaviot v11</title>
+    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v12</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f8; color: #333; margin: 0; padding: 20px; }
@@ -25,7 +25,7 @@
 <body>
 
 <div class="container">
-    <h1>Vesistöjen pintaveden lämpötilat (SYKE Avoin Data)</h1>
+    <h1>Vesistöjen pintaveden lämpötilat v12</h1>
 
     <div class="form-group">
         <label for="stationSearch">1. Etsi mittausasema (esim. "Inari" tai "Nellim")</label>
@@ -67,7 +67,7 @@
     let myChart = null;
 
     async function searchStations() {
-        const searchTerm = document.getElementById('stationSearch').value.trim().toLowerCase();
+        const searchTerm = document.getElementById('stationSearch').value.trim();
         if (!searchTerm) {
             alert('Syötä hakusana');
             return;
@@ -81,9 +81,11 @@
         errorMsg.textContent = '';
         debugInfo.style.display = 'none';
         
-        // Haetaan KAIKKI asemat, mutta rajataan data vain ID- ja Nimi-sarakkeisiin tiedonsiirron minimoimiseksi.
-        // Frontend hoitaa varsinaisen suodatuksen.
-        const fetchUrl = 'https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka?$select=Paikka_Id,Nimi&$format=json';
+        // PALAUTETTU VERSIO 1:N TOIMIVA HAKU.
+        // SYKE API ei kestä liiallista URL-koodausta (esim $ -> %24 tai = -> %3D).
+        // Korvataan vain välilyönnit %20, jotta selain ei kaadu huonosti muotoiltuun osoitteeseen.
+        const query = `substringof('${searchTerm}', tolower(Nimi))`;
+        const fetchUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka?$filter=${query}`.replace(/ /g, '%20');
 
         try {
             const response = await fetch(fetchUrl);
@@ -94,18 +96,13 @@
             }
             
             const data = JSON.parse(textResponse);
-            const allStations = data.value;
-
-            // JS-client-side filtteröinti: poimitaan vain ne, joiden nimessä esiintyy hakusana
-            const filteredStations = allStations.filter(station => 
-                station.Nimi && station.Nimi.toLowerCase().includes(searchTerm)
-            );
+            const stations = data.value;
 
             select.innerHTML = '';
-            if (!filteredStations || filteredStations.length === 0) {
+            if (!stations || stations.length === 0) {
                 select.innerHTML = '<option value="">Ei löytynyt asemia tällä hakusanalla</option>';
             } else {
-                filteredStations.forEach(station => {
+                stations.forEach(station => {
                     const option = document.createElement('option');
                     option.value = station.Paikka_Id;
                     option.text = `${station.Nimi} (ID: ${station.Paikka_Id})`;
@@ -132,15 +129,15 @@
         debugInfo.style.display = 'none';
 
         if (!paikkaId || isNaN(paikkaId)) {
-            errorMsg.textContent = 'Odota hetki, että asemat ladataan, ja valitse sitten kelvollinen asema luettelosta.';
+            errorMsg.textContent = 'Valitse asema luettelosta.';
             return;
         }
 
         loading.style.display = 'block';
 
-        const baseUrl = 'https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/VedenLampotila';
-        const query = `?$filter=Paikka_Id eq ${paikkaId} and Aika ge datetime'${startDate}T00:00:00' and Aika le datetime'${endDate}T23:59:59'&$orderby=Aika asc&$format=json`;
-        const fetchUrl = encodeURI(baseUrl + query);
+        // Käytetään alkuperäistä datetime-formaattia ja koodataan turvallisesti vain välilyönnit
+        const query = `Paikka_Id eq ${paikkaId} and Aika ge datetime'${startDate}T00:00:00' and Aika le datetime'${endDate}T23:59:59'`;
+        const fetchUrl = `https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/VedenLampotila?$filter=${query}&$orderby=Aika asc`.replace(/ /g, '%20');
 
         try {
             const response = await fetch(fetchUrl);
@@ -160,7 +157,7 @@
             const observations = data.value;
 
             if (!observations || observations.length === 0) {
-                errorMsg.textContent = 'Valitulta aikaväliltä ei löytynyt lämpötilahavaintoja tälle asemalle. Kokeile laajentaa päivämääriä.';
+                errorMsg.textContent = 'Valitulta aikaväliltä ei löytynyt lämpötilahavaintoja tälle asemalle. Kokeile laajempaa aikaväliä.';
                 loading.style.display = 'none';
                 return;
             }
