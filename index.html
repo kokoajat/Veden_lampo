@@ -311,6 +311,18 @@ style="width:auto;margin:0;">
 Näytä vain asemat, joilla mitataan pintaveden lämpötilaa
 </label>
 
+<button
+id="listAllButton"
+style="margin-top:12px;width:100%;background:#f5f8fc;color:#0056b3;border:1px solid #b8cde4;">
+
+Listaa kaikki lämpötila-asemat
+
+</button>
+
+<div
+id="stationSummary"
+style="margin-top:10px;color:#555;font-size:14px;"></div>
+
 </div>
 
 <div class="row">
@@ -507,6 +519,15 @@ const exportCSVButton = document.getElementById("exportCSV");
 const compareYearsButton = document.getElementById("compareYearsButton");
 const yearsInput = document.getElementById("yearsInput");
 const onlyTempStations = document.getElementById("onlyTempStations");
+const listAllButton = document.getElementById("listAllButton");
+const stationSummary = document.getElementById("stationSummary");
+
+// Koko lämpötila-asemalista muistetaan, jotta uusi klikkaus on välitön
+let allTempStationsCache = null;
+
+// Pintaveden lämpötilan Suure_Id haetaan kerran ja muistetaan
+let tempSuureId = null;
+let tempSuureLookupDone = false;
 
 const loading = document.getElementById("loading");
 const error = document.getElementById("error");
@@ -587,6 +608,7 @@ const MAX_PROBE = 30;
 async function searchStations() {
 
     clearError();
+    stationSummary.textContent = "";
 
     const term = stationSearch.value.trim();
 
@@ -709,9 +731,36 @@ async function searchStations() {
 
         }
 
-        // Uusin data ensin - aktiiviset asemat ylimmäksi
+        // Sama järjestys kuin koko listassa: aktiiviset ensin
+        // aakkosjärjestyksessä, sitten vanhentuneet.
         if (onlyTempStations.checked) {
-            stations.sort((a,b) => b.latest - a.latest);
+
+            const thisYear = new Date().getFullYear();
+            const collator = new Intl.Collator("fi");
+
+            stations.sort((a,b) => {
+
+                const aActive = a.latest.getFullYear() >= thisYear - 1;
+                const bActive = b.latest.getFullYear() >= thisYear - 1;
+
+                if (aActive !== bActive) return aActive ? -1 : 1;
+
+                const byName = collator.compare(a.Nimi, b.Nimi);
+
+                if (byName !== 0) return byName;
+
+                return b.latest - a.latest;
+
+            });
+
+        }
+
+        else {
+
+            stations.sort((a,b) =>
+                new Intl.Collator("fi").compare(a.Nimi, b.Nimi)
+            );
+
         }
 
         stations.forEach(s => {
@@ -769,6 +818,303 @@ stationSearch.addEventListener("keydown", (e) => {
         searchStations();
     }
 });
+
+// ------------------------------
+// Kaikkien lämpötila-asemien listaus
+// ------------------------------
+
+// Suorittaa asynkronisen operaation listalle rajoitetulla
+// rinnakkaisuudella, jottei selain avaa kymmeniä yhteyksiä kerralla.
+async function mapWithLimit(items, limit, fn, onProgress) {
+
+    const results = new Array(items.length);
+
+    let nextIndex = 0;
+    let completed = 0;
+
+    async function worker() {
+
+        while (true) {
+
+            const i = nextIndex++;
+
+            if (i >= items.length) return;
+
+            results[i] = await fn(items[i]);
+
+            completed++;
+
+            if (onProgress) onProgress(completed, items.length);
+
+        }
+
+    }
+
+    const workers = [];
+
+    for (let w = 0; w < Math.min(limit, items.length); w++) {
+        workers.push(worker());
+    }
+
+    await Promise.all(workers);
+
+    return results;
+
+}
+
+// Etsii Suure-taulusta sen suureen tunnuksen, jonka data on
+// LampoPintavesi-taulussa. Taulu on pieni, joten se haetaan kokonaan
+// ja tulkitaan selaimessa. Tulos muistetaan istunnon ajaksi.
+async function getTempSuureId() {
+
+    if (tempSuureLookupDone) return tempSuureId;
+
+    tempSuureLookupDone = true;
+
+    try {
+
+        const url = `${API_BASE}/Suure`;
+
+        console.log(url);
+
+        const response = await fetch(url, {
+            headers: { "Accept": "application/json" }
+        });
+
+        if (!response.ok) throw new Error("HTTP " + response.status);
+
+        const json = await response.json();
+
+        const match = json.value.find(s =>
+            s.DatataulunNimi === "LampoPintavesi" ||
+            s.taulunnimi === "LampoPintavesi"
+        );
+
+        if (match) {
+            tempSuureId = match.Suure_Id;
+            console.log("Pintaveden lämpötilan Suure_Id:", tempSuureId);
+        }
+
+    }
+
+    catch (err) {
+        console.warn("Suure-taulun haku epäonnistui:", err.message);
+    }
+
+    return tempSuureId;
+
+}
+
+// Hakee kaikki asemat, jotka on rekisteröity pintaveden lämpötilalle.
+// Kokeilee ensin navigaatiopolkua Suure(id)/Paikka ja sen jälkeen
+// tavallista suodatinta.
+async function fetchTempStationCandidates(suureId) {
+
+    const urls = [
+        `${API_BASE}/Suure(${suureId})/Paikka`,
+        `${API_BASE}/Paikka?${new URLSearchParams({"$filter":`Suure_Id eq ${suureId}`}).toString()}`
+    ];
+
+    for (const url of urls) {
+
+        try {
+
+            console.log(url);
+
+            const response = await fetch(url, {
+                headers: { "Accept": "application/json" }
+            });
+
+            if (!response.ok) continue;
+
+            const json = await response.json();
+
+            if (json.value && json.value.length) {
+                return json.value;
+            }
+
+        }
+
+        catch (err) {
+            console.warn("Kysely epäonnistui:", url, err.message);
+        }
+
+    }
+
+    return null;
+
+}
+
+listAllButton.addEventListener("click", listAllTempStations);
+
+async function listAllTempStations() {
+
+    clearError();
+    stationSummary.textContent = "";
+
+    // Käytä välimuistia jos lista on jo haettu
+    if (allTempStationsCache) {
+        populateStationList(allTempStationsCache, true);
+        return;
+    }
+
+    listAllButton.disabled = true;
+    searchButton.disabled = true;
+
+    try {
+
+        showLoading("Selvitetään lämpötilasuuretta...");
+
+        const suureId = await getTempSuureId();
+
+        if (suureId === null) {
+            throw new Error(
+                "Lämpötilasuureen tunnistus epäonnistui. Käytä nimihakua."
+            );
+        }
+
+        showLoading("Haetaan asemalistaa...");
+
+        const candidates = await fetchTempStationCandidates(suureId);
+
+        if (!candidates) {
+            throw new Error(
+                "Asemalistan haku epäonnistui. Käytä nimihakua."
+            );
+        }
+
+        showLoading(`Tarkistetaan ${candidates.length} aseman data...`);
+
+        // Varmistetaan jokaiselta, että dataa todella on, ja
+        // haetaan samalla viimeisin mittausvuosi.
+        const probes = await mapWithLimit(
+            candidates,
+            6,
+            s => probeStation(s.Paikka_Id),
+            (done, total) => {
+                showLoading(`Tarkistetaan asemia... ${done}/${total}`);
+            }
+        );
+
+        const stations = [];
+
+        candidates.forEach((s, i) => {
+            if (probes[i] !== null) {
+                stations.push({
+                    Paikka_Id: s.Paikka_Id,
+                    Nimi: s.Nimi,
+                    latest: probes[i]
+                });
+            }
+        });
+
+        if (stations.length === 0) {
+            throw new Error(
+                `Löytyi ${candidates.length} rekisteröityä asemaa, mutta yhdeltäkään ei saatu lämpötiladataa.`
+            );
+        }
+
+        allTempStationsCache = {
+            stations: stations,
+            registered: candidates.length
+        };
+
+        populateStationList(allTempStationsCache, false);
+
+    }
+
+    catch (err) {
+        showError(err.message);
+    }
+
+    hideLoading();
+    listAllButton.disabled = false;
+    searchButton.disabled = false;
+
+}
+
+// Täyttää valikon asemalistalla ja näyttää yhteenvedon
+function populateStationList(cache, fromCache) {
+
+    const stations = [...cache.stations];
+
+    // Aktiivisiksi lasketaan asemat, joilta on dataa kuluvalta tai
+    // edelliseltä vuodelta
+    const thisYear = new Date().getFullYear();
+
+    const isActive = s => s.latest.getFullYear() >= thisYear - 1;
+
+    // Järjestys: ensin aktiiviset aakkosjärjestyksessä,
+    // sitten vanhentuneet aakkosjärjestyksessä.
+    const collator = new Intl.Collator("fi");
+
+    stations.sort((a,b) => {
+
+        const aActive = isActive(a);
+        const bActive = isActive(b);
+
+        if (aActive !== bActive) {
+            return aActive ? -1 : 1;
+        }
+
+        const byName = collator.compare(a.Nimi, b.Nimi);
+
+        if (byName !== 0) return byName;
+
+        // Sama nimi: tuorein ensin
+        return b.latest - a.latest;
+
+    });
+
+    stationSelect.innerHTML = "";
+    lastStationResults = [];
+
+    const activeStations = stations.filter(isActive);
+    const oldStations = stations.filter(s => !isActive(s));
+
+    // Ryhmitellään valikossa, jotta jako näkyy selvästi
+    function addGroup(label, list) {
+
+        if (list.length === 0) return;
+
+        const group = document.createElement("optgroup");
+
+        group.label = label;
+
+        list.forEach(s => {
+
+            const option = document.createElement("option");
+
+            option.value = s.Paikka_Id;
+
+            option.textContent =
+                `${s.Nimi} (${s.Paikka_Id}) – dataa ${s.latest.getFullYear()} asti`;
+
+            group.appendChild(option);
+
+            lastStationResults.push({
+                Paikka_Id: s.Paikka_Id,
+                Nimi: s.Nimi,
+                latest: s.latest
+            });
+
+        });
+
+        stationSelect.appendChild(group);
+
+    }
+
+    addGroup(`Aktiiviset (${activeStations.length})`, activeStations);
+    addGroup(`Vanhentuneet (${oldStations.length})`, oldStations);
+
+    stationSummary.textContent =
+        `${stations.length} asemaa, joilla on lämpötiladataa ` +
+        `(${activeStations.length} aktiivista, ${oldStations.length} vanhentunutta). ` +
+        `Rekisteröityjä lämpötilapaikkoja ${cache.registered}.`;
+
+    hideLoading();
+
+}
 
 // ------------------------------
 // Lämpötilojen haku
