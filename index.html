@@ -1106,4 +1106,281 @@ function drawComparisonChart(yearData, startMD, endMD) {
 
             yd.result.rawDates.forEach((d, idx) => {
                 const mm = String(d.getMonth()+1).padStart(2,"0");
-                const dd = S
+                const dd = String(d.getDate()).padStart(2,"0");
+                byMD[`${mm}-${dd}`] = yd.result.values[idx];
+            });
+
+            return {
+                year: yd.year,
+                values: sortedMD.map(md => md in byMD ? byMD[md] : "")
+            };
+
+        })
+    };
+
+    // Nollaa yhden vuoden tilastokortit, koska ne eivät päde vertailuun
+    ["countStat","minStat","maxStat","avgStat","lastStat"].forEach(id => {
+        document.getElementById(id).textContent = "-";
+    });
+
+}
+
+// Näyttää taulukon, jossa jokaisen vuoden tunnusluvut rinnakkain
+function renderYearStats(yearData) {
+
+    let html = `
+    <table style="width:100%;border-collapse:collapse;font-size:14px;">
+      <thead>
+        <tr style="background:#f5f8fc;">
+          <th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;">Vuosi</th>
+          <th style="padding:8px;text-align:right;border-bottom:2px solid #ddd;">Mittauksia</th>
+          <th style="padding:8px;text-align:right;border-bottom:2px solid #ddd;">Min</th>
+          <th style="padding:8px;text-align:right;border-bottom:2px solid #ddd;">Max</th>
+          <th style="padding:8px;text-align:right;border-bottom:2px solid #ddd;">Keskiarvo</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+    yearData.forEach((yd, i) => {
+
+        const v = yd.result.values;
+        const avg = v.reduce((a,b)=>a+b,0) / v.length;
+        const color = YEAR_COLORS[i % YEAR_COLORS.length];
+
+        html += `
+        <tr>
+          <td style="padding:8px;border-bottom:1px solid #eee;">
+            <span style="display:inline-block;width:12px;height:12px;background:${color};border-radius:2px;margin-right:8px;"></span>
+            <strong>${yd.year}</strong>
+          </td>
+          <td style="padding:8px;text-align:right;border-bottom:1px solid #eee;">${v.length}</td>
+          <td style="padding:8px;text-align:right;border-bottom:1px solid #eee;">${Math.min(...v).toFixed(1)} °C</td>
+          <td style="padding:8px;text-align:right;border-bottom:1px solid #eee;">${Math.max(...v).toFixed(1)} °C</td>
+          <td style="padding:8px;text-align:right;border-bottom:1px solid #eee;"><strong>${avg.toFixed(1)} °C</strong></td>
+        </tr>`;
+
+    });
+
+    html += `</tbody></table>`;
+
+    document.getElementById("yearStats").innerHTML = html;
+
+}
+
+// ----------------------------------------------------
+// Tilastojen laskenta
+// ----------------------------------------------------
+
+function updateStatistics(values) {
+
+    if (!values || values.length === 0) return;
+
+    const count = values.length;
+
+    const min = Math.min(...values);
+
+    const max = Math.max(...values);
+
+    const avg =
+        values.reduce((a,b)=>a+b,0) / count;
+
+    const sorted =
+        [...values].sort((a,b)=>a-b);
+
+    const median =
+        sorted.length % 2 === 0
+        ?
+        (
+            sorted[sorted.length/2-1]
+            +
+            sorted[sorted.length/2]
+        ) / 2
+        :
+        sorted[Math.floor(sorted.length/2)];
+
+    document.getElementById("countStat").textContent =
+        count;
+
+    document.getElementById("minStat").textContent =
+        min.toFixed(1) + " °C";
+
+    document.getElementById("maxStat").textContent =
+        max.toFixed(1) + " °C";
+
+    document.getElementById("avgStat").textContent =
+        avg.toFixed(1) + " °C";
+
+    document.getElementById("lastStat").textContent =
+        values[values.length-1].toFixed(1) + " °C";
+
+    console.log({
+        count,
+        min,
+        max,
+        avg,
+        median
+    });
+
+}
+
+// ----------------------------------------------------
+// Kaavion piirto
+// ----------------------------------------------------
+
+function drawChart(labels, values) {
+
+    const ctx = document.getElementById("tempChart").getContext("2d");
+
+    if (chart) {
+        chart.destroy();
+    }
+
+    chart = new Chart(ctx, {
+        type: "line",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: "Pintaveden lämpötila (°C)",
+                data: values,
+                borderColor: "#0056b3",
+                backgroundColor: "rgba(0,86,179,0.1)",
+                fill: true,
+                tension: 0.2,
+                pointRadius: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    title: {
+                        display: true,
+                        text: "°C"
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                        text: "Päivämäärä"
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true
+                }
+            }
+        }
+    });
+
+}
+
+// ----------------------------------------------------
+// PNG-tallennus
+// ----------------------------------------------------
+
+savePNGButton.addEventListener("click", () => {
+
+    if (!chart) {
+        alert("Ei kaaviota tallennettavaksi. Hae ensin lämpötiloja.");
+        return;
+    }
+
+    const link = document.createElement("a");
+    link.href = chart.toBase64Image();
+    link.download = "veden_lampotilat.png";
+    link.click();
+
+});
+
+// ----------------------------------------------------
+// CSV-vienti
+// ----------------------------------------------------
+
+exportCSVButton.addEventListener("click", exportCSV);
+
+function exportCSV(){
+
+    let csv;
+    let filename;
+
+    if (comparisonMode && comparisonExportData) {
+
+        // Vuosivertailu: yksi sarake per vuosi
+        const d = comparisonExportData;
+
+        csv = "Päivä;" + d.years.map(y => y.year).join(";") + "\n";
+
+        for (let i = 0; i < d.labels.length; i++) {
+
+            csv += d.labels[i];
+
+            d.years.forEach(y => {
+                csv += ";" + y.values[i];
+            });
+
+            csv += "\n";
+
+        }
+
+        filename = "veden_lampotilat_vuosivertailu.csv";
+
+    }
+
+    else {
+
+        if(currentValues.length===0){
+
+            alert("Ei vietävää dataa. Hae ensin lämpötiloja.");
+
+            return;
+
+        }
+
+        csv="Päivämäärä;Lämpötila\n";
+
+        for(let i=0;i<currentValues.length;i++){
+
+            csv+=
+            currentLabels[i] +
+            ";" +
+            currentValues[i] +
+            "\n";
+
+        }
+
+        filename = "veden_lampotilat.csv";
+
+    }
+
+    const blob=
+    new Blob(
+        ["\ufeff" + csv],
+        {
+            type:"text/csv;charset=utf-8;"
+        }
+    );
+
+    const url=
+    URL.createObjectURL(blob);
+
+    const a=
+    document.createElement("a");
+
+    a.href=url;
+
+    a.download=filename;
+
+    a.click();
+
+    URL.revokeObjectURL(url);
+
+}
+
+</script>
+
+</body>
+
+</html>
+
