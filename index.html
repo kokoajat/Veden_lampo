@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v8</title>
+    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v9</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f8; color: #333; margin: 0; padding: 20px; }
@@ -75,18 +75,16 @@
 
         const select = document.getElementById('stationSelect');
         const errorMsg = document.getElementById('errorMsg');
+        const debugInfo = document.getElementById('debugInfo');
         
         select.innerHTML = '<option value="loading">Haetaan asemia...</option>';
         errorMsg.textContent = '';
         debugInfo.style.display = 'none';
         
-        // Rakennetaan URL turvallisesti natiivilla URLSearchParams-oliolla
+        // Rakennetaan kysely manuaalisesti. encodeURI jättää $-merkit rauhaan, mutta koodaa välilyönnit (%20)
         const baseUrl = 'https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka';
-        const params = new URLSearchParams({
-            '$filter': `substringof('${searchTerm}', tolower(Nimi))`,
-            '$format': 'json'
-        });
-        const fetchUrl = `${baseUrl}?${params.toString()}`;
+        const query = `?$filter=substringof('${searchTerm}', tolower(Nimi))&$format=json`;
+        const fetchUrl = encodeURI(baseUrl + query);
 
         try {
             const response = await fetch(fetchUrl);
@@ -136,14 +134,9 @@
 
         loading.style.display = 'block';
 
-        // Rakennetaan päivämääräkysely turvallisesti
         const baseUrl = 'https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/VedenLampotila';
-        const params = new URLSearchParams({
-            '$filter': `Paikka_Id eq ${paikkaId} and Aika ge datetime'${startDate}T00:00:00' and Aika le datetime'${endDate}T23:59:59'`,
-            '$orderby': 'Aika asc',
-            '$format': 'json'
-        });
-        const fetchUrl = `${baseUrl}?${params.toString()}`;
+        const query = `?$filter=Paikka_Id eq ${paikkaId} and Aika ge datetime'${startDate}T00:00:00' and Aika le datetime'${endDate}T23:59:59'&$orderby=Aika asc&$format=json`;
+        const fetchUrl = encodeURI(baseUrl + query);
 
         try {
             const response = await fetch(fetchUrl);
@@ -206,4 +199,3 @@
 
 </body>
 </html>
-
