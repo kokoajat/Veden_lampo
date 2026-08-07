@@ -325,37 +325,13 @@ style="margin-top:10px;color:#555;font-size:14px;"></div>
 
 </div>
 
-<div class="row">
-
-<div class="col">
-
-<label>Alkupäivä</label>
-
-<input
-type="date"
-id="startDate"
-value="2024-05-01">
-
-</div>
-
-<div class="col">
-
-<label>Loppupäivä</label>
-
-<input
-type="date"
-id="endDate">
-
-</div>
-
-</div>
-
 <div class="form-group" style="margin-top:20px;border-top:1px solid #eee;padding-top:15px;">
 
-<label>Vertaa samaa ajanjaksoa eri vuosina</label>
+<label>Ajanjakso</label>
 
 <p style="margin:0 0 12px;color:#666;font-size:14px;">
-Valitse jakso päivänä ja kuukautena. Vuodet tulevat alla olevasta luettelosta.
+Valitse jakso päivänä ja kuukautena, ja anna vuodet joilta haluat sen.
+Useampi vuosi piirtyy samaan kuvaajaan vertailtavaksi.
 </p>
 
 <div class="row">
@@ -388,35 +364,28 @@ Valitse jakso päivänä ja kuukautena. Vuodet tulevat alla olevasta luettelosta
 
 <div class="col">
 
+<label style="font-weight:normal;font-size:14px;">Vuodet</label>
+
 <input
 id="yearsInput"
 type="text"
-placeholder="esim. 2022,2023,2024,2025,2026">
+placeholder="esim. 2024 tai 2022,2023,2024">
 
 </div>
 
-<div style="width:170px">
+</div>
 
 <button
-id="compareYearsButton">
-
-Vertaa vuosia
-
-</button>
-
-</div>
-
-</div>
-
-</div>
-
-<div class="toolbar">
-
-<button id="loadButton">
+id="loadButton"
+style="margin-top:14px;width:100%;">
 
 Hae lämpötilat
 
 </button>
+
+</div>
+
+<div class="toolbar">
 
 <button id="savePNG">
 
@@ -427,12 +396,6 @@ Tallenna PNG
 <button id="exportCSV">
 
 Vie CSV
-
-</button>
-
-<button id="refresh">
-
-Päivitä
 
 </button>
 
@@ -527,9 +490,6 @@ let lastStationResults = [];
 let comparisonMode = false;
 let comparisonExportData = null; // { labels: [...], years: [{year, values:[...]}] }
 
-document.getElementById("endDate").value =
-new Date().toISOString().substring(0,10);
-
 // ------------------------------
 // Elementtiviittaukset
 // ------------------------------
@@ -540,9 +500,7 @@ const stationSelect = document.getElementById("stationSelect");
 const loadButton = document.getElementById("loadButton");
 const searchButton = document.getElementById("searchButton");
 const savePNGButton = document.getElementById("savePNG");
-const refreshButton = document.getElementById("refresh");
 const exportCSVButton = document.getElementById("exportCSV");
-const compareYearsButton = document.getElementById("compareYearsButton");
 const yearsInput = document.getElementById("yearsInput");
 const cmpStartDay = document.getElementById("cmpStartDay");
 const cmpStartMonth = document.getElementById("cmpStartMonth");
@@ -1213,9 +1171,6 @@ function populateStationList(cache, fromCache) {
 // Lämpötilojen haku
 // ------------------------------
 
-loadButton.addEventListener("click", loadTemperatures);
-refreshButton.addEventListener("click", loadTemperatures);
-
 // Palauttaa listan kokeiltavista Paikka_Id:istä: ensin annettu asema,
 // sitten muut samannimiset "sisaraseamat" viimeisimmästä hakutuloksesta.
 function getStationCandidates(paikkaId) {
@@ -1323,86 +1278,16 @@ async function fetchWithFallback(paikkaId, start, end, onTrySibling) {
 
 }
 
-async function loadTemperatures() {
-
-    clearError();
-
-    const paikkaId = stationSelect.value;
-
-    if (!paikkaId || isNaN(Number(paikkaId))) {
-        showError("Valitse ensin asema hakutuloksista.");
-        return;
-    }
-
-    showLoading("Haetaan lämpötiloja...");
-    loadButton.disabled = true;
-    comparisonMode = false;
-    document.getElementById("yearStats").innerHTML = "";
-
-    try {
-
-        const start =
-            document.getElementById("startDate").value;
-
-        const end =
-            document.getElementById("endDate").value;
-
-        if (!start || !end) {
-            throw new Error("Valitse alku- ja loppupäivä.");
-        }
-
-        const found = await fetchWithFallback(paikkaId, start, end, (candidate) => {
-            showLoading(`Kokeillaan asemaa Paikka_Id ${candidate}...`);
-        });
-
-        if (!found) {
-            throw new Error(
-                "Mittauksia ei löytynyt valitulla aikavälillä yhdeltäkään samannimiseltä asemalta."
-            );
-        }
-
-        const { result, usedPaikkaId } = found;
-
-        // Jos päädyttiin toiseen asemaan kuin valikossa oli valittuna,
-        // päivitä valikko ja kerro käyttäjälle mitä tehtiin.
-        if (String(usedPaikkaId) !== String(paikkaId)) {
-            stationSelect.value = usedPaikkaId;
-            showError(
-                `Huom: valitulla asemalla ei ollut lämpötiladataa. Näytetään tiedot asemalta Paikka_Id ${usedPaikkaId}.`
-            );
-        }
-
-        // Talteen CSV-vientiä varten
-        currentLabels = result.labels;
-        currentValues = result.values;
-
-        updateStatistics(result.values);
-
-        drawChart(result.labels, result.values);
-
-    }
-
-    catch(err){
-
-        showError(err.message);
-
-    }
-
-    hideLoading();
-    loadButton.disabled = false;
-
-}
-
 // ----------------------------------------------------
-// Vuosivertailu
+// Lämpötilojen haku (yksi tai useampi vuosi)
 // ----------------------------------------------------
 
-compareYearsButton.addEventListener("click", compareYears);
+loadButton.addEventListener("click", loadTemperatures);
 
 yearsInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
         e.preventDefault();
-        compareYears();
+        loadTemperatures();
     }
 });
 
@@ -1533,7 +1418,7 @@ function periodLabel(startDay, startMonth, endDay, endMonth) {
     return `${startDay}.${startMonth}. – ${endDay}.${endMonth}.`;
 }
 
-async function compareYears() {
+async function loadTemperatures() {
 
     clearError();
     document.getElementById("yearStats").innerHTML = "";
@@ -1545,11 +1430,18 @@ async function compareYears() {
         return;
     }
 
-    const years = parseYears(yearsInput.value);
+    let years = parseYears(yearsInput.value);
 
+    // Tyhjä vuosikenttä: käytetään kuluvaa vuotta
     if (years.length === 0) {
-        showError("Anna vertailtavat vuodet, esim. 2022,2023,2024,2025,2026");
-        return;
+
+        if (yearsInput.value.trim() !== "") {
+            showError("Vuosia ei tunnistettu. Anna esim. 2024 tai 2022,2023,2024.");
+            return;
+        }
+
+        years = [new Date().getFullYear()];
+
     }
 
     const startDay = Number(cmpStartDay.value);
@@ -1571,7 +1463,6 @@ async function compareYears() {
 
     const label = periodLabel(startDay, startMonth, endDay, endMonth);
 
-    compareYearsButton.disabled = true;
     loadButton.disabled = true;
 
     const yearData = [];
@@ -1620,7 +1511,13 @@ async function compareYears() {
         }
 
         drawComparisonChart(yearData, label);
-        renderYearStats(yearData);
+
+        // Yksi vuosi: tunnusluvut kortteina. Useampi: taulukko rinnakkain.
+        if (yearData.length === 1) {
+            updateStatistics(yearData[0].result.values);
+        } else {
+            renderYearStats(yearData);
+        }
 
         comparisonMode = true;
 
@@ -1637,7 +1534,6 @@ async function compareYears() {
     }
 
     hideLoading();
-    compareYearsButton.disabled = false;
     loadButton.disabled = false;
 
 }
@@ -1723,7 +1619,9 @@ function drawComparisonChart(yearData, periodText) {
                 legend: { display: true },
                 title: {
                     display: true,
-                    text: `Vuosivertailu ${periodText}`
+                    text: yearData.length === 1
+                        ? `Pintaveden lämpötila ${periodText} ${yearData[0].year}`
+                        : `Vuosivertailu ${periodText}`
                 }
             }
         }
@@ -1750,10 +1648,13 @@ function drawComparisonChart(yearData, periodText) {
         })
     };
 
-    // Nollaa yhden vuoden tilastokortit, koska ne eivät päde vertailuun
-    ["countStat","minStat","maxStat","avgStat","lastStat"].forEach(id => {
-        document.getElementById(id).textContent = "-";
-    });
+    // Usean vuoden vertailussa yhteiset tunnusluvut eivät ole
+    // mielekkäitä - ne näytetään taulukossa vuosittain.
+    if (yearData.length > 1) {
+        ["countStat","minStat","maxStat","avgStat","lastStat"].forEach(id => {
+            document.getElementById(id).textContent = "-";
+        });
+    }
 
 }
 
@@ -1851,59 +1752,6 @@ function updateStatistics(values) {
         max,
         avg,
         median
-    });
-
-}
-
-// ----------------------------------------------------
-// Kaavion piirto
-// ----------------------------------------------------
-
-function drawChart(labels, values) {
-
-    const ctx = document.getElementById("tempChart").getContext("2d");
-
-    if (chart) {
-        chart.destroy();
-    }
-
-    chart = new Chart(ctx, {
-        type: "line",
-        data: {
-            labels: labels,
-            datasets: [{
-                label: "Pintaveden lämpötila (°C)",
-                data: values,
-                borderColor: "#0056b3",
-                backgroundColor: "rgba(0,86,179,0.1)",
-                fill: true,
-                tension: 0.2,
-                pointRadius: 2
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    title: {
-                        display: true,
-                        text: "°C"
-                    }
-                },
-                x: {
-                    title: {
-                        display: true,
-                        text: "Päivämäärä"
-                    }
-                }
-            },
-            plugins: {
-                legend: {
-                    display: true
-                }
-            }
-        }
     });
 
 }
