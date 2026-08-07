@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v9</title>
+    <title>SYKE Veden Lämpötila - Tilastot ja Kaaviot v10</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f8; color: #333; margin: 0; padding: 20px; }
@@ -67,11 +67,14 @@
     let myChart = null;
 
     async function searchStations() {
-        const searchTerm = document.getElementById('stationSearch').value.trim().toLowerCase();
-        if (!searchTerm) {
+        const rawSearchTerm = document.getElementById('stationSearch').value.trim();
+        if (!rawSearchTerm) {
             alert('Syötä hakusana');
             return;
         }
+
+        // SYKE vaatii tarkan kirjainkoon (esim. "Nellim"). Muutetaan eka kirjain isoksi automaattisesti.
+        const searchTerm = rawSearchTerm.charAt(0).toUpperCase() + rawSearchTerm.slice(1).toLowerCase();
 
         const select = document.getElementById('stationSelect');
         const errorMsg = document.getElementById('errorMsg');
@@ -81,9 +84,9 @@
         errorMsg.textContent = '';
         debugInfo.style.display = 'none';
         
-        // Rakennetaan kysely manuaalisesti. encodeURI jättää $-merkit rauhaan, mutta koodaa välilyönnit (%20)
+        // Yksinkertaistettu kysely ilman tolower() -toimintoa
         const baseUrl = 'https://rajapinnat.ymparisto.fi/api/Hydrologiarajapinta/1.0/odata/Paikka';
-        const query = `?$filter=substringof('${searchTerm}', tolower(Nimi))&$format=json`;
+        const query = `?$filter=substringof('${searchTerm}', Nimi)&$format=json`;
         const fetchUrl = encodeURI(baseUrl + query);
 
         try {
