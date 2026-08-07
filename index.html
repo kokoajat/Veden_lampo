@@ -354,11 +354,37 @@ id="endDate">
 
 <label>Vertaa samaa ajanjaksoa eri vuosina</label>
 
-<p style="margin:0 0 10px;color:#666;font-size:14px;">
-Käyttää yllä olevan alku- ja loppupäivän päivää ja kuukautta. Kirjoita alle vuodet joita haluat verrata.
+<p style="margin:0 0 12px;color:#666;font-size:14px;">
+Valitse jakso päivänä ja kuukautena. Vuodet tulevat alla olevasta luettelosta.
 </p>
 
 <div class="row">
+
+<div class="col">
+
+<label style="font-weight:normal;font-size:14px;">Jakso alkaa</label>
+
+<div style="display:flex;gap:8px;">
+<select id="cmpStartDay" style="flex:0 0 80px;"></select>
+<select id="cmpStartMonth"></select>
+</div>
+
+</div>
+
+<div class="col">
+
+<label style="font-weight:normal;font-size:14px;">Jakso päättyy</label>
+
+<div style="display:flex;gap:8px;">
+<select id="cmpEndDay" style="flex:0 0 80px;"></select>
+<select id="cmpEndMonth"></select>
+</div>
+
+</div>
+
+</div>
+
+<div class="row" style="margin-top:14px;">
 
 <div class="col">
 
@@ -518,6 +544,10 @@ const refreshButton = document.getElementById("refresh");
 const exportCSVButton = document.getElementById("exportCSV");
 const compareYearsButton = document.getElementById("compareYearsButton");
 const yearsInput = document.getElementById("yearsInput");
+const cmpStartDay = document.getElementById("cmpStartDay");
+const cmpStartMonth = document.getElementById("cmpStartMonth");
+const cmpEndDay = document.getElementById("cmpEndDay");
+const cmpEndMonth = document.getElementById("cmpEndMonth");
 const onlyTempStations = document.getElementById("onlyTempStations");
 const listAllButton = document.getElementById("listAllButton");
 const stationSummary = document.getElementById("stationSummary");
@@ -1447,9 +1477,60 @@ function normalizeYear(text) {
 
 }
 
-// Palauttaa "MM-DD" annetusta yyyy-mm-dd -merkkijonosta
-function monthDay(dateString) {
-    return dateString.substring(5);
+const MONTH_NAMES = [
+    "tammikuu","helmikuu","maaliskuu","huhtikuu","toukokuu","kesäkuu",
+    "heinäkuu","elokuu","syyskuu","lokakuu","marraskuu","joulukuu"
+];
+
+// Täyttää päivä- ja kuukausivalitsimet
+function initPeriodSelects() {
+
+    [cmpStartDay, cmpEndDay].forEach(sel => {
+        for (let d = 1; d <= 31; d++) {
+            const o = document.createElement("option");
+            o.value = String(d);
+            o.textContent = String(d) + ".";
+            sel.appendChild(o);
+        }
+    });
+
+    [cmpStartMonth, cmpEndMonth].forEach(sel => {
+        MONTH_NAMES.forEach((name, i) => {
+            const o = document.createElement("option");
+            o.value = String(i + 1);
+            o.textContent = name;
+            sel.appendChild(o);
+        });
+    });
+
+    // Oletusjakso: avovesikausi 1.5. - 31.8.
+    cmpStartDay.value = "1";
+    cmpStartMonth.value = "5";
+    cmpEndDay.value = "31";
+    cmpEndMonth.value = "8";
+
+}
+
+initPeriodSelects();
+
+function pad2(n) {
+    return String(n).padStart(2, "0");
+}
+
+// Rakentaa päivämäärän vuodelle. Päivä rajataan kuukauden pituuteen,
+// jotta esim. 31.4. tai 29.2. karkausvuoden ulkopuolella ei tuota
+// virheellistä päivämäärää.
+function dateForYear(year, month, day) {
+
+    const lastDay = new Date(year, month, 0).getDate();
+
+    return `${year}-${pad2(month)}-${pad2(Math.min(day, lastDay))}`;
+
+}
+
+// Jakson kuvaus tekstinä, esim. "1.5. – 31.8."
+function periodLabel(startDay, startMonth, endDay, endMonth) {
+    return `${startDay}.${startMonth}. – ${endDay}.${endMonth}.`;
 }
 
 async function compareYears() {
@@ -1471,21 +1552,24 @@ async function compareYears() {
         return;
     }
 
-    const start = document.getElementById("startDate").value;
-    const end = document.getElementById("endDate").value;
+    const startDay = Number(cmpStartDay.value);
+    const startMonth = Number(cmpStartMonth.value);
+    const endDay = Number(cmpEndDay.value);
+    const endMonth = Number(cmpEndMonth.value);
 
-    if (!start || !end) {
-        showError("Valitse alku- ja loppupäivä (päivä ja kuukausi otetaan näistä).");
+    // Jakso ei saa mennä vuodenvaihteen yli, koska silloin eri vuosien
+    // päivät eivät asetu vertailukelpoisesti päällekkäin.
+    if (
+        endMonth < startMonth ||
+        (endMonth === startMonth && endDay < startDay)
+    ) {
+        showError(
+            "Jakson on päätyttävä saman kalenterivuoden puolella kuin se alkaa. Vuodenvaihteen yli menevää jaksoa ei voi verrata."
+        );
         return;
     }
 
-    const startMD = monthDay(start);
-    const endMD = monthDay(end);
-
-    if (startMD > endMD) {
-        showError("Vuosivertailu ei tue vuodenvaihteen yli menevää jaksoa. Aseta loppupäivä samalle kalenterivuodelle kuin alkupäivä.");
-        return;
-    }
+    const label = periodLabel(startDay, startMonth, endDay, endMonth);
 
     compareYearsButton.disabled = true;
     loadButton.disabled = true;
@@ -1499,8 +1583,8 @@ async function compareYears() {
 
             showLoading(`Haetaan vuotta ${year}...`);
 
-            const yStart = `${year}-${startMD}`;
-            const yEnd = `${year}-${endMD}`;
+            const yStart = dateForYear(year, startMonth, startDay);
+            const yEnd = dateForYear(year, endMonth, endDay);
 
             const found = await fetchWithFallback(paikkaId, yStart, yEnd);
 
@@ -1531,11 +1615,11 @@ async function compareYears() {
             }
 
             throw new Error(
-                `Mittauksia ei löytynyt yhdeltäkään vuodelta (${years.join(", ")}) ajanjaksolla ${startMD.replace("-",".")}–${endMD.replace("-",".")}.` + hint
+                `Mittauksia ei löytynyt yhdeltäkään vuodelta (${years.join(", ")}) jaksolla ${label}.` + hint
             );
         }
 
-        drawComparisonChart(yearData, startMD, endMD);
+        drawComparisonChart(yearData, label);
         renderYearStats(yearData);
 
         comparisonMode = true;
@@ -1561,7 +1645,7 @@ async function compareYears() {
 // Piirtää usean vuoden käyrät samaan kaavioon.
 // X-akselina käytetään päivä.kuukausi -muotoa, jotta vuodet
 // asettuvat päällekkäin vertailtaviksi.
-function drawComparisonChart(yearData, startMD, endMD) {
+function drawComparisonChart(yearData, periodText) {
 
     // Rakennetaan yhteinen x-akseli: kaikki jaksolla esiintyvät MM-DD
     const allMD = new Set();
@@ -1639,7 +1723,7 @@ function drawComparisonChart(yearData, startMD, endMD) {
                 legend: { display: true },
                 title: {
                     display: true,
-                    text: `Vuosivertailu ${startMD.replace("-",".")} – ${endMD.replace("-",".")}`
+                    text: `Vuosivertailu ${periodText}`
                 }
             }
         }
